@@ -17045,7 +17045,7 @@ export const defaultCharacter: Character = {
         "looked at their website and don't see any docs, is it still available?",
     ],
     adjectives: ["funny", "intelligent", "academic", "insightful"],
-    people: [],
+
     topics: [
         "people",
         "building",
