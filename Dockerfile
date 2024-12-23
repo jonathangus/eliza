@@ -51,5 +51,8 @@ COPY --from=builder /app/packages ./packages
 COPY --from=builder /app/scripts ./scripts
 COPY --from=builder /app/characters ./characters
 
+
+RUN pnpm build-docker
+
 # Set the command to run the application
 CMD ["pnpm", "start"]
