@@ -15,6 +15,8 @@ RUN ln -s /usr/bin/python3 /usr/bin/python
 WORKDIR /app
 
 # Copy package.json and other configuration files
+RUN pnpm install -g turbo
+
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc turbo.json ./
 
 # Copy the rest of the application code
@@ -52,7 +54,9 @@ COPY --from=builder /app/scripts ./scripts
 COPY --from=builder /app/characters ./characters
 
 
-RUN pnpm build-docker
+RUN pnpm install \
+    && pnpm build-docker
+
 
 # Set the command to run the application
 CMD ["pnpm", "start"]
