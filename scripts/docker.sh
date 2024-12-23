@@ -9,7 +9,7 @@ fi
 # Execute the corresponding command based on the argument
 case "$1" in
     build)
-        docker build --platform linux/amd64 -t eliza .
+        docker build --no-cache --platform linux/amd64 -t eliza .
         ;;
     run)
         # Ensure the container is not already running
