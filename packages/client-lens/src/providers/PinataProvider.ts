@@ -11,15 +11,24 @@ export class PinataProvider implements StorageProvider {
 
     private PINATA_API_URL: string = "https://api.pinata.cloud";
     private PINATA_JWT: string;
+    private PINATA_GATEWAY_URL: string;
     private client: AxiosInstance;
 
     constructor(runtime: IAgentRuntime) {
         this.PINATA_JWT = runtime.getSetting("PINATA_JWT")!;
+        this.PINATA_GATEWAY_URL = runtime.getSetting("PINATA_GATEWAY_URL")!;
+
         this.client = this.createClient();
 
         if (!this.PINATA_JWT) {
             elizaLogger.warn(
                 "To use Pinata IPFS service you need to set PINATA_JWT in environment variables. Get your key at https://pinata.cloud"
+            );
+        }
+
+        if (!this.PINATA_GATEWAY_URL) {
+            elizaLogger.warn(
+                "It's recommended to set PINATA_GATEWAY_URL so Lens indexing of 4000ms doesn't get exceeded"
             );
         }
     }
@@ -59,9 +68,11 @@ export class PinataProvider implements StorageProvider {
             }
         );
 
+        const url = this.resolveUrl(data.IpfsHash);
+
         return {
             cid: data.IpfsHash,
-            url: `https://gateway.pinata.cloud/ipfs/${data.IpfsHash}`,
+            url,
         };
     }
 
@@ -83,12 +94,19 @@ export class PinataProvider implements StorageProvider {
             }
         );
 
-        // For some reason we need to wait for some seconds for Lens to be able to find the content
-        await new Promise((resolve) => setTimeout(resolve, 10_000));
+        const url = this.resolveUrl(result.IpfsHash);
 
         return {
-            cid: result.IpfsHash,
-            url: `https://gateway.pinata.cloud/ipfs/${result.IpfsHash}`,
+            cid: data.IpfsHash,
+            url,
         };
+    }
+
+    private resolveUrl(cid: string): string {
+        if (this.PINATA_GATEWAY_URL) {
+            return `https://${this.PINATA_GATEWAY_URL}/ipfs/${cid}`;
+        }
+
+        return `https://gateway.pinata.cloud/ipfs/${cid}`;
     }
 }
