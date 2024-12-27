@@ -86,6 +86,8 @@ export class LensPostManager {
                     postTemplate,
             });
 
+            console.log("context",context);
+
             const content = await generateText({
                 runtime: this.runtime,
                 context,
@@ -132,6 +134,7 @@ export class LensPostManager {
                 elizaLogger.error("Error sending publication:", error);
             }
         } catch (error) {
+            console.error(error);
             elizaLogger.error("Error generating new publication:", error);
         }
     }

@@ -146,7 +146,7 @@ export async function generateText({
 
     elizaLogger.info("Selected model:", model);
 
-    const modelConfiguration = runtime.character?.settings?.modelConfig;
+    const modelConfiguration = runtime.character?.settings?.modelConfig || {};
     const temperature =
         modelConfiguration?.temperature ||
         models[provider].settings.temperature;
