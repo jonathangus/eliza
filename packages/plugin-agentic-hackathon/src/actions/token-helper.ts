@@ -77,6 +77,7 @@ Constraints:
 User request: {{currentMessage}}  
 Amount: {{amount}}  
 Date: {{date}}
+Wanted risk: {{risk}}
 
 IMPORTANT: Return only this JSON (no extra text, no formatting):
 
@@ -121,10 +122,9 @@ export const tokenHelperAction: Action = {
         options: any,
         callback: HandlerCallback
     ) => {
-        console.log(state);
         state.currentMessage =
-            state.recentMessageInteractions ||
-            state.recentMessagesData?.[1].content.text;
+            state.recentMessagesData?.[1].content.text ||
+            state.recentMessagesData;
 
         const sender = state.senderName;
 
@@ -144,6 +144,8 @@ export const tokenHelperAction: Action = {
         });
 
         const { amount, risk } = firstCallSchema.parse(object);
+
+        console.log("RISK", risk);
 
         const allTokens = await fetchAllTokens();
         const swapsData = swapStorer.getInfo();
@@ -224,6 +226,7 @@ export const tokenHelperAction: Action = {
         state.finalTokens = JSON.stringify(tokensWithDextools);
         state.amount = amount;
         state.date = new Date().toISOString();
+        state.risk = risk;
 
         const context2 = composeContext({ state, template: secondTemplate });
 
