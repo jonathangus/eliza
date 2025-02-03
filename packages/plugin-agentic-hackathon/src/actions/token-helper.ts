@@ -54,59 +54,51 @@ Instructions:
     \\\
 `;
 
-const secondTemplate = `
-    You are a trading assistant. Given the list of tokens, recommend which ones to buy.
+const secondTemplate = `You are a hypothetical trading assistant.  
+All allocations are fictional and for simulation only.  
+No real money is spent.  
+No financial advice is given or implied.
 
-    We want to **simulate** a hypothetical allocation plan.
+We have the following tokens:
+{{finalTokens}}
 
-    **No real money will be spent**.
+We want a **hypothetical** allocation plan for the tokens based on:  
+1. finalScoreValue  
+2. scoreDetails  
+3. enhancedMetrics (including Smart Money Momentum, Liquidity Health, Time-weighted price/volume changes, Risk-adjusted score, Market context)
 
-    Available tokens:
-    \`\`\`
-    {{finalTokens}}
-    \`\`\`
+Constraints:
+- Percentages must total 100% (in decimal form).  
+- Allocate higher percentages to tokens with better risk-adjusted scores, higher liquidity health, and positive smart money momentum.  
+- Provide a one-sentence explanation for why each token is chosen, referencing both basic and enhanced metrics.  
+- Summaries should reference the token symbol with a "$" prefix (e.g. "$ABC").  
+- Keep the main "summary" field to no more than 120 characters.  
 
-    User request: {{currentMessage}}
-    Amount: {{amount}}
-    Date: {{date}}
+User request: {{currentMessage}}  
+Amount: {{amount}}  
+Date: {{date}}
 
-    Instructions:
-    - Base recommendations on finalScoreValue, scoreDetails, and enhancedMetrics
-    - Consider the following enhanced metrics for each token:
-      * Smart Money Momentum (higher is better)
-      * Liquidity Health (concentration, stability, depth)
-      * Time-weighted price and volume changes
-      * Risk-adjusted score
-      * Market context
-    - Each token that has been selected shall have one unique sentence explaining why it was selected
-    - The explanation should incorporate both basic and enhanced metrics
-    - Percentage is always in decimal form (e.g. 0.1 = 10%)
-    - The percentage should always be a total of 100%
-    - Allocate higher percentages to tokens with:
-      * Higher risk-adjusted scores
-      * Better liquidity health
-      * Positive smart money momentum
-      * Favorable market context
-    - If you want to reference the heat ratio talk about the high volume compared to the total value locked 
-    - The summary shall include all the tokens symbols and a explanation of the allocation. The sentance should not be more then 120 characters. Each token should be prefixed with $
+IMPORTANT: Return only this JSON (no extra text, no formatting):
 
-    IMPORTANT: Return a JSON object with the following schema, and nothing else:
+{
+  "summary": "string",
+  "order": [
     {
-        summary: string,
-        order: Array<{
-            contractAddress: string,
-            percentage: string,
-            name: string,
-            symbol: string,
-            decimals: number,
-            summary: string,
-            info: Object
-        }>,
-        amount: string | null,
-        risk: "LOW" | "MID" | "HIGH",
-        type: "token_buy",
-        date: string
-    }`;
+      "contractAddress": "string",
+      "percentage": "string",
+      "name": "string",
+      "symbol": "string",
+      "decimals": number,
+      "summary": "string",
+      "info": {}
+    }
+  ],
+  "amount": "string or null",
+  "risk": "LOW" | "MID" | "HIGH",
+  "type": "token_buy",
+  "date": "string"
+}
+`;
 
 export const tokenHelperAction: Action = {
     name: "CREATE_TRADE",
@@ -135,9 +127,6 @@ export const tokenHelperAction: Action = {
             state.recentMessagesData?.[1].content.text;
 
         const sender = state.senderName;
-        console.log("message....:", message);
-
-        console.log(":::::::sender", sender);
 
         const context1 = composeContext({
             state,
@@ -265,26 +254,12 @@ export const tokenHelperAction: Action = {
 
         const outputData = result;
 
-        // Create outputs directory if it doesn't exist
-        const outputDir = path.join(process.cwd(), "outputs");
-        if (!fs.existsSync(outputDir)) {
-            fs.mkdirSync(outputDir, { recursive: true });
-        }
-
+        console.log(result);
         const myOutput = JSON.parse(
             result.replace("```", "").replace("json", "").replace("```", "")
         );
 
-        console.log("::::::::ACTION:", myOutput);
-
         const uuid = crypto.randomUUID();
-        const outputPath = path.join(
-            outputDir,
-            `token-recommendation-${uuid}.json`
-        );
-
-        fs.writeFileSync(outputPath, JSON.stringify(outputData, null, 2));
-        console.log(`Saved recommendation to ${outputPath}`);
 
         await redis.set(uuid, JSON.stringify(outputData));
 
