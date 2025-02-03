@@ -1,0 +1,28 @@
+# syntax=docker/dockerfile:1
+
+FROM node:23.3.0-bookworm-slim
+
+# Install minimal runtime dependencies
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        ffmpeg \
+        libopus-dev && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/* && \
+    npm install -g pnpm@9.4.0
+
+# Set the working directory
+WORKDIR /app
+
+# Copy all necessary files
+COPY package.json pnpm-workspace.yaml .npmrc turbo.json ./
+COPY node_modules ./node_modules
+COPY agent ./agent
+COPY client ./client
+COPY lerna.json ./
+COPY packages ./packages
+COPY scripts ./scripts
+COPY characters ./characters
+
+# Command to start the application
+CMD ["sh", "-c", "pnpm start & pnpm start:client"]

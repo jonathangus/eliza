@@ -38,6 +38,7 @@ You are a **trading assistant**. Given the user's request, you must determine:
 Instructions:
 - **If the user does not specify how much they want to spend**, set \amount\ to **null**.
 - **If the user does not specify a risk level**, set \risk\ to **MID**.
+- Extract the message the user sent and return it in the originalQuestion field. It should just be the question without any information about the sender.
 
 **User message**:
 \\\
@@ -50,6 +51,7 @@ Instructions:
     {
         "amount": string | null,
         "risk": "LOW" | "MID" | "HIGH",
+        "originalQuestion": string,
     }
     \\\
 `;
@@ -72,29 +74,56 @@ Constraints:
 - Allocate higher percentages to tokens with better risk-adjusted scores, higher liquidity health, and positive smart money momentum.  
 - Provide a one-sentence explanation for why each token is chosen, referencing both basic and enhanced metrics.  
 - Summaries should reference the token symbol with a "$" prefix (e.g. "$ABC").  
-- Keep the main "summary" field to no more than 120 characters.  
+- Keep the main "summary" field to no more than 120 characters.
+- Answer should be a single sentence that summarizes the user's request and the output from our allocation plan in the  voice and style and perspective of {{agentName}}
+- Keymetrics should be coming from the token data to be extracted
 
 User request: {{currentMessage}}  
 Amount: {{amount}}  
 Date: {{date}}
 Wanted risk: {{risk}}
+# About {{agentName}
+{{bio}}
+{{lore}}
+{{topics}}
+
+{{providers}}
+
+{{characterPostExamples}}
+
 
 IMPORTANT: Return only this JSON (no extra text, no formatting):
 
 {
   "summary": "string",
+  "answer": "string",
   "order": [
     {
       "contractAddress": "string",
-      "percentage": "string",
+      "percentage": "string",// make sure its a decimal value (ex 0.1 for 10%)
       "name": "string",
       "symbol": "string",
       "decimals": number,
       "summary": "string",
-      "info": {}
+      "keyMetrics": {
+        "smartMoneyMomentum": "string",
+        "liquidityHealth": "string",
+        "riskAdjusted": "string",
+        "marketContext": "string",
+        "tvl": "string",
+        "volume": "string",
+        "price": "string",
+      },
+      "explanation": {
+            "tvl": "string",
+            "volume": "string",
+            "netBuys": "string",
+            "goodTrader": "string",
+            "heat": "string", 
+        },
     }
   ],
-  "amount": "string or null",
+  "amount": "string" or null,
   "risk": "LOW" | "MID" | "HIGH",
   "type": "token_buy",
   "date": "string"
@@ -110,7 +139,7 @@ export const tokenHelperAction: Action = {
         "BUY_TOKEN_ACTION",
     ],
     description:
-        "All-in-one Action that returns one list of tokens from top-10 in each risk category, then final recommendation.",
+        "All-in-one Action that returns one list of tokens from top-10 in each risk category, then final recommendation. Always return IGNORE after",
     suppressInitialMessage: true,
 
     validate: async (runtime: IAgentRuntime, message: Memory) => true,
@@ -122,8 +151,18 @@ export const tokenHelperAction: Action = {
         options: any,
         callback: HandlerCallback
     ) => {
+        let currentState = state;
+        if (!currentState) {
+            currentState = (await runtime.composeState(message)) as State;
+        } else {
+            currentState = await runtime.updateRecentMessageState(currentState);
+        }
+
+        const recentInteractionsData = state.recentMessagesData;
+
         state.currentMessage =
-            state.recentMessagesData?.[1].content.text ||
+            state.recentMessagesData?.[1]?.content.text ||
+            state.recentMessagesData?.[0]?.content.text ||
             state.recentMessagesData;
 
         const sender = state.senderName;
@@ -144,8 +183,6 @@ export const tokenHelperAction: Action = {
         });
 
         const { amount, risk } = firstCallSchema.parse(object);
-
-        console.log("RISK", risk);
 
         const allTokens = await fetchAllTokens();
         const swapsData = swapStorer.getInfo();
@@ -252,19 +289,28 @@ export const tokenHelperAction: Action = {
             modelClass: ModelClass.LARGE,
         });
 
-        // console.log("SECOND CALL", result.text);
-        // console.log("SECOND CALL PROOF", result.id);
-
-        const outputData = result;
-
         console.log(result);
-        const myOutput = JSON.parse(
+        let myOutput = JSON.parse(
             result.replace("```", "").replace("json", "").replace("```", "")
         );
 
+        myOutput.order = myOutput.order.map((x) => {
+            const token = tokensWithDextools.find(
+                (y) =>
+                    y.contractAddress.toLowerCase() ===
+                    x.contractAddress.toLowerCase()
+            );
+            return {
+                ...x,
+                tokenInfo: token?.dexTools?.pairs?.[0]?.info,
+            };
+        });
+
         const uuid = crypto.randomUUID();
 
-        await redis.set(uuid, JSON.stringify(outputData));
+        console.log("MY OUTPUT", myOutput);
+        console.log("ID:::", uuid);
+        await redis.set(uuid, JSON.stringify(myOutput));
 
         const output = `${myOutput.summary} Execute the trade on https://based-helper.vercel.app/${uuid}`;
 

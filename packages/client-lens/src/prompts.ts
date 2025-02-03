@@ -7,7 +7,13 @@ import type { AnyPublicationFragment } from "@lens-protocol/client";
 
 export const formatPublication = (publication: AnyPublicationFragment) => {
     return `ID: ${publication.id}
-    From: ${publication.by.metadata?.displayName} (@${publication.by.handle?.localName})${publication.by.handle?.localName})${publication.commentOn ? `\nIn reply to: @${publication.commentOn.by.handle?.localName}` : ""}
+    From: ${publication.by.metadata?.displayName} (@${
+        publication.by.handle?.localName
+    })${publication.by.handle?.localName})${
+        publication.commentOn
+            ? `\nIn reply to: @${publication.commentOn.by.handle?.localName}`
+            : ""
+    }
 Text: ${publication.metadata.content}`;
 };
 
@@ -53,8 +59,11 @@ Recent interactions between {{agentName}} and other users:
 Thread of publications You Are Replying To:
 {{formattedConversation}}
 
-# Task: Generate a post in the voice, style and perspective of {{agentName}} (@{{lensHandle}}):
-{{currentPost}}` +
+Current Post:
+{{currentPost}}
+
+# Task: Return the most recent message from the user with action "CONTINUE"
+` +
     messageCompletionFooter;
 
 export const shouldRespondTemplate =

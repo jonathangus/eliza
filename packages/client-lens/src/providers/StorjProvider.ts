@@ -39,23 +39,31 @@ class StorjProvider {
 
     public async pinJson(json: any): Promise<string> {
         if (typeof json !== "string") {
-            json = JSON.stringify(json);
+            // json = JSON.stringify(json);
         }
-        const formData = new FormData();
-        formData.append("path", Buffer.from(json, "utf-8").toString());
 
-        const headers = {
-            "Content-Type": "multipart/form-data",
-            ...formData.getHeaders(),
-        };
-
-        const { data } = await this.client.post(
-            "add?cid-version=1",
-            formData.getBuffer(),
-            { headers }
+        const { data: result } = await axios.post(
+            "https://api.pinata.cloud/pinning/pinJSONToIPFS",
+            {
+                pinataOptions: {
+                    cidVersion: 1,
+                },
+                pinataMetadata: {
+                    name: "content.json",
+                },
+                pinataContent: json,
+            },
+            {
+                headers: {
+                    "Content-Type": "application/json",
+                    Authorization: `Bearer ${process.env.PINATA_JWT}`,
+                },
+            }
         );
 
-        return this.gatewayURL(data.Hash);
+        console.log(`${process.env.PINATA_GATEWAY}/ipfs/${result.IpfsHash}`);
+
+        return `${process.env.PINATA_GATEWAY}/ipfs/${result.IpfsHash}`;
     }
 
     public async pinFile(file: {

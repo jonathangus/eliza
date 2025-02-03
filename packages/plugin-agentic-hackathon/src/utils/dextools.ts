@@ -94,6 +94,7 @@ export async function fetchTokenData(
         );
 
         if (!response.ok) {
+            console.log("response bad in dextools");
             // throw new Error(`HTTP error! status: ${response.status}`);
             return null;
         }
