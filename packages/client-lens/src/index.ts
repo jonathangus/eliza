@@ -57,7 +57,8 @@ export class LensAgentClient implements Client {
     }
 
     async start() {
-        await Promise.all([this.posts.start(), this.interactions.start()]);
+        this.interactions.start();
+        // await Promise.all([this.posts.start(), this.interactions.start()]);
     }
 
     async stop() {

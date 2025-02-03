@@ -50,7 +50,7 @@ export class LensInteractionManager {
                     1000 // Default to 2 minutes
             );
         };
-
+        this.handleInteractions();
         handleInteractionsLoop();
     }
 
@@ -75,8 +75,9 @@ export class LensInteractionManager {
                 pubId: mention.id,
             });
 
-            const pastMemory =
-                await this.runtime.messageManager.getMemoryById(pastMemoryId);
+            const pastMemory = await this.runtime.messageManager.getMemoryById(
+                pastMemoryId
+            );
 
             if (pastMemory) {
                 continue;
@@ -97,24 +98,31 @@ export class LensInteractionManager {
                 publication: mention,
             });
 
-            function hasContent(metadata: any): metadata is { content: string } {
-                return metadata && typeof metadata.content === 'string';
+            function hasContent(
+                metadata: any
+            ): metadata is { content: string } {
+                return metadata && typeof metadata.content === "string";
             }
 
             let memory: Memory;
             if (
-                (mention.__typename === 'Post' || mention.__typename === 'Comment' || mention.__typename === 'Quote') &&
+                (mention.__typename === "Post" ||
+                    mention.__typename === "Comment" ||
+                    mention.__typename === "Quote") &&
                 hasContent(mention.metadata)
             ) {
                 memory = {
-                    content: { text: mention.metadata.content, hash: mention.id },
+                    content: {
+                        text: mention.metadata.content,
+                        hash: mention.id,
+                    },
                     agentId: this.runtime.agentId,
                     userId,
                     roomId,
                 };
             } else {
                 memory = {
-                    content: { text: '[No Content]', hash: mention.id },
+                    content: { text: "[No Content]", hash: mention.id },
                     agentId: this.runtime.agentId,
                     userId,
                     roomId,
@@ -163,12 +171,12 @@ export class LensInteractionManager {
         );
 
         function hasContent(metadata: any): metadata is { content: string } {
-            return metadata && typeof metadata.content === 'string';
+            return metadata && typeof metadata.content === "string";
         }
 
         const formattedConversation = thread
             .map((pub) => {
-                if ('metadata' in pub && hasContent(pub.metadata)) {
+                if ("metadata" in pub && hasContent(pub.metadata)) {
                     const content = pub.metadata.content;
                     return `@${pub.by.handle?.localName} (${new Date(
                         pub.createdAt
@@ -212,8 +220,9 @@ export class LensInteractionManager {
             pubId: publication.id,
         });
 
-        const castMemory =
-            await this.runtime.messageManager.getMemoryById(memoryId);
+        const castMemory = await this.runtime.messageManager.getMemoryById(
+            memoryId
+        );
 
         if (!castMemory) {
             await this.runtime.messageManager.createMemory(
