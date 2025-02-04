@@ -66,6 +66,7 @@
   },
   "dependencies": {
     "@0glabs/0g-ts-sdk": "0.2.1",
+    "@anush008/tokenizers-linux-x64-gnu": "^0.0.0",
     "@coinbase/coinbase-sdk": "0.10.0",
     "@deepgram/sdk": "^3.9.0",
     "@injectivelabs/sdk-ts": "^1.14.33",

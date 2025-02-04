@@ -1,3 +1,4 @@
+import { toCoinbaseSmartAccount } from "viem/account-abstraction";
 import {
     Action,
     ActionExample,
@@ -22,6 +23,9 @@ import fs from "fs";
 import path from "path";
 import { Redis } from "@upstash/redis";
 import { swapExecutor } from "../swap-executor";
+import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
+import { base } from "viem/chains";
+import { createPublicClient, http } from "viem";
 
 const redis = Redis.fromEnv();
 
@@ -289,11 +293,11 @@ export const tokenHelperAction: Action = {
         });
 
         console.log(result);
-        let myOutput = JSON.parse(
+        let buyTokenAction = JSON.parse(
             result.replace("```", "").replace("json", "").replace("```", "")
         );
 
-        myOutput.order = myOutput.order.map((x) => {
+        buyTokenAction.order = buyTokenAction.order.map((x) => {
             const token = tokensWithDextools.find(
                 (y) =>
                     y.contractAddress.toLowerCase() ===
@@ -307,13 +311,35 @@ export const tokenHelperAction: Action = {
 
         const uuid = crypto.randomUUID();
 
-        console.log("MY OUTPUT", myOutput);
+        console.log("MY OUTPUT", buyTokenAction);
         console.log("ID:::", uuid);
-        await redis.set(uuid, JSON.stringify(myOutput));
 
-        const output = `${myOutput.summary} Execute the trade on https://based-helper.vercel.app/${uuid}`;
+        await redis.set(uuid, JSON.stringify(buyTokenAction));
 
-        swapExecutor.addEntry(uuid, state);
+        const pk = generatePrivateKey();
+        const owner = privateKeyToAccount(pk);
+
+        const client = createPublicClient({
+            chain: base,
+            transport: http(),
+        });
+
+        const account = await toCoinbaseSmartAccount({
+            client: client,
+            owners: [owner],
+        } as any);
+
+        console.log("MY ADDRESS FOR THIS ORDER:", account.address);
+
+        const output = `${buyTokenAction.summary} Execute the trade on https://based-helper.vercel.app/${uuid}`;
+
+        swapExecutor.addEntry({
+            id: uuid,
+            buyTokenAction,
+            state,
+            pk,
+            owner: account.address,
+        });
         // Return final JSON from second LLM call
         callback({ text: output });
         return true;
