@@ -178,7 +178,7 @@ export class SwapStorer {
         }) as any;
     }
 
-    init() {
+    init = async () => {
         try {
             console.log("SWAP STORE INIT..");
 
@@ -186,8 +186,8 @@ export class SwapStorer {
             this.loadFromCache();
 
             // Refresh pools and backfill swaps
-            // this.refreshPools();
-            // this.backfillSwaps();
+            await this.refreshPools();
+            await this.backfillSwaps();
 
             // Set up hourly refresh
             setInterval(() => this.refreshPools(), 60 * 60 * 1000);
@@ -195,7 +195,7 @@ export class SwapStorer {
         } catch (error) {
             console.error("Error initializing SwapStorer:", error);
         }
-    }
+    };
 
     private loadFromCache = () => {
         try {
@@ -261,7 +261,7 @@ export class SwapStorer {
         try {
             const URL = graphURL;
             console.log("Fetching pools data");
-            const pageSize = 1000;
+            const pageSize = 100;
             const allPools: Pool[] = [];
 
             let hasMore = true;
@@ -287,6 +287,9 @@ export class SwapStorer {
                         console.log("Reached maximum page limit");
                         break;
                     }
+
+                    // Add delay between requests
+                    await new Promise((resolve) => setTimeout(resolve, 1000));
                 } catch (error) {
                     console.error(`Error fetching pools page ${page}:`, error);
                     hasMore = false;
@@ -629,7 +632,7 @@ ${summary.symbol} (${summary.address.slice(0, 6)}...):
         try {
             console.log("Backfilling swaps from last 30 minutes...");
             const thirtyMinutesAgo = Math.floor(Date.now() / 1000) - 30 * 60;
-            const pageSize = 1000;
+            const pageSize = 100;
             let hasMore = true;
             let page = 0;
             let totalSwapsAdded = 0;
@@ -652,75 +655,88 @@ ${summary.symbol} (${summary.address.slice(0, 6)}...):
                     );
                     let pageSwapsAdded = 0;
 
-                    // Process each swap
-                    for (const swap of swaps) {
-                        try {
-                            // Convert amounts using viem's parseUnits
-                            const amount0 = parseUnits(
-                                swap.amount0,
-                                parseInt(swap.token0.decimals)
-                            );
-                            const amount1 = parseUnits(
-                                swap.amount1,
-                                parseInt(swap.token1.decimals)
-                            );
+                    // Process swaps in smaller chunks
+                    const chunkSize = 20;
+                    for (let i = 0; i < swaps.length; i += chunkSize) {
+                        const chunk = swaps.slice(i, i + chunkSize);
 
-                            // Determine which token was sold and which was bought
-                            let soldToken, boughtToken;
+                        for (const swap of chunk) {
+                            try {
+                                // Convert amounts using viem's parseUnits
+                                const amount0 = parseUnits(
+                                    swap.amount0,
+                                    parseInt(swap.token0.decimals)
+                                );
+                                const amount1 = parseUnits(
+                                    swap.amount1,
+                                    parseInt(swap.token1.decimals)
+                                );
 
-                            if (amount0 < 0n) {
-                                // Negative amount0 means token0 was sold
-                                soldToken = {
-                                    address: swap.token0.id,
-                                    symbol: swap.token0.symbol,
-                                    amount: -amount0, // Convert negative to positive
+                                // Determine which token was sold and which was bought
+                                let soldToken, boughtToken;
+
+                                if (amount0 < 0n) {
+                                    // Negative amount0 means token0 was sold
+                                    soldToken = {
+                                        address: swap.token0.id,
+                                        symbol: swap.token0.symbol,
+                                        amount: -amount0, // Convert negative to positive
+                                    };
+                                    boughtToken = {
+                                        address: swap.token1.id,
+                                        symbol: swap.token1.symbol,
+                                        amount: amount1,
+                                    };
+                                } else {
+                                    // Negative amount1 means token1 was sold
+                                    soldToken = {
+                                        address: swap.token1.id,
+                                        symbol: swap.token1.symbol,
+                                        amount: -amount1, // Convert negative to positive
+                                    };
+                                    boughtToken = {
+                                        address: swap.token0.id,
+                                        symbol: swap.token0.symbol,
+                                        amount: amount0,
+                                    };
+                                }
+
+                                const swapData: SwapData = {
+                                    timestamp: parseInt(swap.timestamp) * 1000,
+                                    sender: getAddress(swap.sender),
+                                    soldToken,
+                                    boughtToken,
                                 };
-                                boughtToken = {
-                                    address: swap.token1.id,
-                                    symbol: swap.token1.symbol,
-                                    amount: amount1,
-                                };
-                            } else {
-                                // Negative amount1 means token1 was sold
-                                soldToken = {
-                                    address: swap.token1.id,
-                                    symbol: swap.token1.symbol,
-                                    amount: -amount1, // Convert negative to positive
-                                };
-                                boughtToken = {
-                                    address: swap.token0.id,
-                                    symbol: swap.token0.symbol,
-                                    amount: amount0,
-                                };
+
+                                // Store in swap history using token0's address as pool ID
+                                const poolId = swap.token0.id.toLowerCase();
+                                if (!this.swapHistory.has(poolId)) {
+                                    this.swapHistory.set(poolId, []);
+                                }
+                                this.swapHistory.get(poolId)!.push(swapData);
+                                pageSwapsAdded++;
+                                totalSwapsAdded++;
+                            } catch (error) {
+                                console.error(
+                                    "Error processing historical swap:",
+                                    error
+                                );
                             }
-
-                            const swapData: SwapData = {
-                                timestamp: parseInt(swap.timestamp) * 1000,
-                                sender: getAddress(swap.sender),
-                                soldToken,
-                                boughtToken,
-                            };
-
-                            // Store in swap history using token0's address as pool ID
-                            const poolId = swap.token0.id.toLowerCase();
-                            if (!this.swapHistory.has(poolId)) {
-                                this.swapHistory.set(poolId, []);
-                            }
-                            this.swapHistory.get(poolId)!.push(swapData);
-                            pageSwapsAdded++;
-                            totalSwapsAdded++;
-                        } catch (error) {
-                            console.error(
-                                "Error processing historical swap:",
-                                error
-                            );
                         }
+
+                        // Add small delay between chunk processing
+                        await new Promise((resolve) =>
+                            setTimeout(resolve, 100)
+                        );
                     }
 
                     console.log(
                         `Added ${pageSwapsAdded} swaps from page ${page}`
                     );
                     page++;
+
+                    // Add delay between pages
+                    await new Promise((resolve) => setTimeout(resolve, 1000));
 
                     // Safety limit
                     if (page > 10) {

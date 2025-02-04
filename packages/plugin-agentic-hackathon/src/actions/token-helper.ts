@@ -21,6 +21,7 @@ import { OpacityAdapter } from "@elizaos/plugin-opacity";
 import fs from "fs";
 import path from "path";
 import { Redis } from "@upstash/redis";
+import { swapExecutor } from "../swap-executor";
 
 const redis = Redis.fromEnv();
 
@@ -164,8 +165,6 @@ export const tokenHelperAction: Action = {
             state.recentMessagesData?.[1]?.content.text ||
             state.recentMessagesData?.[0]?.content.text ||
             state.recentMessagesData;
-
-        const sender = state.senderName;
 
         const context1 = composeContext({
             state,
@@ -314,6 +313,7 @@ export const tokenHelperAction: Action = {
 
         const output = `${myOutput.summary} Execute the trade on https://based-helper.vercel.app/${uuid}`;
 
+        swapExecutor.addEntry(uuid, state);
         // Return final JSON from second LLM call
         callback({ text: output });
         return true;
