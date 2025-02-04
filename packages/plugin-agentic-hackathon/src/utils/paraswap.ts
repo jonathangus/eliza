@@ -8,6 +8,7 @@ interface SwapParams {
     userAddress: Address;
     amount: bigint;
     enabled?: boolean;
+    receiver?: Address;
 }
 
 export interface SwapResponse {
@@ -75,6 +76,7 @@ export async function fetchSwapParams({
     destDecimals,
     userAddress,
     amount,
+    receiver,
 }: Omit<SwapParams, "enabled">) {
     const params = new URLSearchParams({
         network: String(base.id),
@@ -85,6 +87,7 @@ export async function fetchSwapParams({
         amount: String(amount),
         side: "SELL",
         slippage: "250",
+        receiver,
     });
 
     const response = await fetch(`https://api.paraswap.io/swap?${params}`);

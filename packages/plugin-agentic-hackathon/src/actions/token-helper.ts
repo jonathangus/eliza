@@ -25,7 +25,7 @@ import { Redis } from "@upstash/redis";
 import { swapExecutor } from "../swap-executor";
 import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 import { base } from "viem/chains";
-import { createPublicClient, http } from "viem";
+import { createClient, http } from "viem";
 
 const redis = Redis.fromEnv();
 
@@ -88,13 +88,7 @@ Amount: {{amount}}
 Date: {{date}}
 Wanted risk: {{risk}}
 # About {{agentName}
-{{bio}}
-{{lore}}
-{{topics}}
-
-{{providers}}
-
-{{characterPostExamples}}
+{{bio}} 
 
 
 IMPORTANT: Return only this JSON (no extra text, no formatting):
@@ -191,51 +185,48 @@ export const tokenHelperAction: Action = {
         const swapsData = swapStorer.getInfo();
         const goodTraderActions = swapStorer.getGoodTraderActivity();
 
-        // Build min-max ranges
         const ranges = buildScoringRanges(
             allTokens,
             swapsData,
             goodTraderActions
         );
 
-        // Score & add "risk" with enhanced scoring
-        const enriched = await Promise.all(
-            allTokens.map(async (t) => {
-                // Fetch DEX data for enhanced scoring
-                const dexData = await fetchTokenData(t.contractAddress);
+        const enriched = [];
+        for (const t of allTokens) {
+            await new Promise((resolve) => setTimeout(resolve, 500));
 
-                // Use enhanced scoring
-                const finalScore = enhancedDynamicScore(
-                    t,
-                    swapsData,
-                    goodTraderActions,
-                    ranges,
-                    dexData
-                );
+            const dexData = await fetchTokenData(t.contractAddress);
 
-                const risk = getRisk(t.size);
+            const finalScore = enhancedDynamicScore(
+                t,
+                swapsData,
+                goodTraderActions,
+                ranges,
+                dexData
+            );
 
-                return {
-                    ...t,
-                    risk,
-                    finalScoreValue: finalScore.finalScore,
-                    scoreDetails: {
-                        breakdown: finalScore.breakdown,
-                        weightedBreakdown: finalScore.weightedBreakdown,
-                        weights: finalScore.weights,
-                        explanation: finalScore.explanation,
-                        metrics: finalScore.metrics,
-                    },
-                    enhancedMetrics: {
-                        timeWeighted: finalScore.timeWeighted,
-                        smartMoneyMomentum: finalScore.smartMoneyMomentum,
-                        liquidityHealth: finalScore.liquidityHealth,
-                        riskAdjusted: finalScore.riskAdjusted,
-                        marketContext: finalScore.marketContext,
-                    },
-                };
-            })
-        );
+            const risk = getRisk(t.size);
+
+            enriched.push({
+                ...t,
+                risk,
+                finalScoreValue: finalScore.finalScore,
+                scoreDetails: {
+                    breakdown: finalScore.breakdown,
+                    weightedBreakdown: finalScore.weightedBreakdown,
+                    weights: finalScore.weights,
+                    explanation: finalScore.explanation,
+                    metrics: finalScore.metrics,
+                },
+                enhancedMetrics: {
+                    timeWeighted: finalScore.timeWeighted,
+                    smartMoneyMomentum: finalScore.smartMoneyMomentum,
+                    liquidityHealth: finalScore.liquidityHealth,
+                    riskAdjusted: finalScore.riskAdjusted,
+                    marketContext: finalScore.marketContext,
+                },
+            });
+        }
 
         const ignoreTokens = ["USD", "BTC", "ETH", "Stable", "DAI"];
         const selectedTokens = enriched
@@ -246,13 +237,12 @@ export const tokenHelperAction: Action = {
                         x.name.toLowerCase().includes(tokenName.toLowerCase())
                     )
             )
-            // Sort by risk-adjusted score instead of just finalScore
             .sort(
                 (a, b) =>
                     b.enhancedMetrics.riskAdjusted -
                     a.enhancedMetrics.riskAdjusted
             )
-            .slice(0, 10);
+            .slice(0, 8);
 
         const tokensWithDextools = await Promise.all(
             selectedTokens.map(async (tok) => {
@@ -263,28 +253,26 @@ export const tokenHelperAction: Action = {
             })
         );
 
-        state.finalTokens = JSON.stringify(tokensWithDextools);
+        const finalTokens = tokensWithDextools.map((tok) => {
+            return {
+                ...tok,
+                dexTools: {
+                    ...tok.dexTools,
+                    pairs: tok.dexTools.pairs.map((pair) => {
+                        return {
+                            ...pair,
+                            info: undefined,
+                        };
+                    }),
+                },
+            };
+        });
+        state.finalTokens = JSON.stringify(finalTokens);
         state.amount = amount;
         state.date = new Date().toISOString();
         state.risk = risk;
 
         const context2 = composeContext({ state, template: secondTemplate });
-
-        // const verifiableInferenceAdapter = new OpacityAdapter({
-        //     teamId: process.env.OPACITY_TEAM_ID,
-        //     teamName: process.env.OPACITY_CLOUDFLARE_NAME,
-        //     opacityProverUrl: process.env.OPACITY_PROVER_URL,
-        //     modelProvider: runtime.modelProvider,
-        //     token: runtime.token,
-        // });
-
-        // console.log(context2);
-
-        // const result = await verifiableInferenceAdapter.generateText(
-        //     context2,
-        //     ModelClass.LARGE,
-        //     {}
-        // );
 
         const result = await generateText({
             runtime,
@@ -292,7 +280,7 @@ export const tokenHelperAction: Action = {
             modelClass: ModelClass.LARGE,
         });
 
-        console.log(result);
+        console.info("Generated result from model:", result);
         let buyTokenAction = JSON.parse(
             result.replace("```", "").replace("json", "").replace("```", "")
         );
@@ -311,27 +299,29 @@ export const tokenHelperAction: Action = {
 
         const uuid = crypto.randomUUID();
 
-        console.log("MY OUTPUT", buyTokenAction);
-        console.log("ID:::", uuid);
+        console.info("Generated buy token action:", buyTokenAction);
+        console.info("Generated UUID for transaction:", uuid);
 
         await redis.set(uuid, JSON.stringify(buyTokenAction));
 
         const pk = generatePrivateKey();
         const owner = privateKeyToAccount(pk);
-
-        const client = createPublicClient({
+        const client = createClient({
             chain: base,
+            account: owner,
             transport: http(),
         });
 
         const account = await toCoinbaseSmartAccount({
             client: client,
             owners: [owner],
-        } as any);
+        });
 
-        console.log("MY ADDRESS FOR THIS ORDER:", account.address);
+        console.info("Generated account address for order:", account.address);
 
-        const output = `${buyTokenAction.summary} Execute the trade on https://based-helper.vercel.app/${uuid}`;
+        const output = `${buyTokenAction.summary} Execute the trade on https://based-helper.vercel.app/${uuid}
+        
+        Send ETH to ${account.address} to execute the trade. Remember this is a hackathon project and your funds might be lost. `;
 
         swapExecutor.addEntry({
             id: uuid,
@@ -340,7 +330,7 @@ export const tokenHelperAction: Action = {
             pk,
             owner: account.address,
         });
-        // Return final JSON from second LLM call
+
         callback({ text: output });
         return true;
     },

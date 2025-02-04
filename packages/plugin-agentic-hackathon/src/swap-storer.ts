@@ -185,13 +185,19 @@ export class SwapStorer {
             // Try to load cached data first
             this.loadFromCache();
 
+            if (process.env.SKIP_BACKFILL === "true") {
+                console.log("SKIP_BACKFILL is true, skipping backfill");
+                setInterval(() => this.refreshPools(), 60 * 60 * 1000);
+
+                return;
+            }
             // Refresh pools and backfill swaps
             await this.refreshPools();
             await this.backfillSwaps();
 
             // Set up hourly refresh
             setInterval(() => this.refreshPools(), 60 * 60 * 1000);
-            console.log("INIT DONE");
+            console.log("swap storer backfil done");
         } catch (error) {
             console.error("Error initializing SwapStorer:", error);
         }
