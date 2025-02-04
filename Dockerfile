@@ -1,4 +1,4 @@
-# Use a specific Node.js version for better reproducibility
+# Use Node 23.3.0 as specified in the project requirements
 FROM node:23.3.0-slim AS builder
 
 # Install pnpm globally and necessary build tools
@@ -24,7 +24,7 @@ RUN npm install -g pnpm@9.15.4 && \
         libpango1.0-dev \
         libgif-dev \
         openssl \
-        libssl-dev && \
+       libssl-dev libsecret-1-dev && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
@@ -34,14 +34,23 @@ RUN ln -sf /usr/bin/python3 /usr/bin/python
 # Set the working directory
 WORKDIR /app
 
-# Copy application code
-COPY . .
+# Create patches directory
+RUN mkdir -p patches
 
-# Install dependencies
+# Copy package files and patches first
+COPY package.json pnpm-workspace.yaml pnpm-lock.yaml turbo.json ./
+COPY patches/ patches/
+
+# Install dependencies first (for better caching)
 RUN pnpm install --no-frozen-lockfile
 
-# Build the project
-RUN pnpm run build && pnpm prune --prod
+# Copy the rest of the application code, excluding node_modules
+COPY . .
+
+# Install rollup explicitly and rebuild
+RUN pnpm install @rollup/rollup-linux-x64-gnu -w && \
+    pnpm run build && \
+    pnpm prune --prod
 
 # Final runtime image
 FROM node:23.3.0-slim
@@ -71,6 +80,7 @@ COPY --from=builder /app/lerna.json ./
 COPY --from=builder /app/packages ./packages
 COPY --from=builder /app/scripts ./scripts
 COPY --from=builder /app/characters ./characters
+COPY --from=builder /app/patches ./patches
 
 # Expose necessary ports
 EXPOSE 3000 5173

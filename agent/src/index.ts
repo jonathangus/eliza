@@ -41,7 +41,7 @@ import {
     stringToUuid,
     validateCharacterConfig,
 } from "@elizaos/core";
-import { defaultCharacter } from "./agentic-character";
+import { defaultCharacter } from "./agentic-characther";
 import { normalizeCharacter } from "@elizaos/plugin-di";
 import { swapStorer } from "@elizaos/plugin-agentic-hackathon";
 
