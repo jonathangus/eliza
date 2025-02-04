@@ -1,6 +1,7 @@
 *.ts
 !index.ts
 !character.ts
+!agentic-character.ts
 .env
 *.env
 .env*
