@@ -21,7 +21,8 @@ class SwapExecutor {
 
     constructor() {
         // Set up cache directory path relative to token-helper.ts location
-        this.cacheDir = path.join(__dirname, "actions", "cache");
+        this.cacheDir = path.join(process.cwd(), "..", "cache");
+
         this.accountsPath = path.join(this.cacheDir, "accounts.json");
         this.accounts = {};
         this.initializeCache();
