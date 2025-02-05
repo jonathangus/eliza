@@ -90,6 +90,7 @@ Wanted risk: {{risk}}
 
 Important: Make sure that the return percentage always is summarized to 100%:
 Important: Make sure the amount of tokens requested always is presented in the "order" array
+Important: Make sure the tokens returned in the order array are unique and we dont mention the same 2 tokens twice
 IMPORTANT: Return only this JSON (no extra text, no formatting):
 
 {
