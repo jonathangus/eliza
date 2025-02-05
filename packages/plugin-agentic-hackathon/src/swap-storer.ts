@@ -13,6 +13,7 @@ import { graphURL } from "./utils/token-data";
 import goodTraderData from "./utils/trading-wallets.json";
 import path from "path";
 import fs from "fs";
+import { onChainDataStorer } from "./onchain-data-storer";
 
 const goodTraderWallets: Address[] = goodTraderData.map((wallet) =>
     getAddress(wallet.address)
@@ -481,6 +482,8 @@ export class SwapStorer {
                     this.swapHistory.get(poolId)!.push(swapData);
                 }
                 console.log(`Found ${logs.length} swaps`);
+
+                onChainDataStorer.updateTopState();
             },
             onError: (error) => {},
         });

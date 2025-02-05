@@ -1,24 +1,26 @@
-import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
+import { privateKeyToAccount } from "viem/accounts";
 import fs from "fs";
 import path from "path";
 import {
     createPublicClient,
     http,
-    createWalletClient,
     Address,
-    parseEther,
     formatEther,
     parseUnits,
     decodeFunctionData,
     FormattedTransaction,
     createClient,
+    webSocket,
 } from "viem";
 import { base } from "viem/chains";
 import { Action, AgentRuntime, State } from "@elizaos/core";
 import { fetchSwapParams } from "./utils/paraswap";
 import { BuyTokenAction } from "./types";
-import { eip5792Actions } from "viem/experimental";
-import { toCoinbaseSmartAccount } from "viem/account-abstraction";
+import {
+    createPaymasterClient,
+    createBundlerClient,
+    toCoinbaseSmartAccount,
+} from "viem/account-abstraction";
 import { entryPointAbi } from "./abi/entry-point";
 import { coinbaseSmartAccountAbi } from "./abi/coinbase-smart-account";
 
@@ -37,20 +39,17 @@ interface AccountEntry {
     }[];
 }
 
-const publicClient = createPublicClient({
-    chain: base,
-    transport: http(process.env.BASE_RPC_URL!),
-});
-
 interface AATransfer {
     target: Address;
     value: bigint;
+    sender: Address;
 }
 
 const getAATransfer = (
     tx: FormattedTransaction<typeof base, any>
-): AATransfer | null => {
+): AATransfer[] => {
     let decodedEntryPoint;
+    const transfers: AATransfer[] = [];
 
     // Try to decode the entry point transaction
     try {
@@ -59,8 +58,7 @@ const getAATransfer = (
             data: tx.input,
         });
     } catch (error) {
-        console.error("Failed to decode entry point transaction:", error);
-        return null;
+        return [];
     }
 
     // Loop through entry point args
@@ -79,7 +77,7 @@ const getAATransfer = (
 
             // Process each user operation
             for (const userOp of arg) {
-                if (!userOp.callData) continue;
+                if (!userOp.callData || !userOp.sender) continue;
 
                 // Try to decode the call data
                 let decodedCallData;
@@ -89,7 +87,6 @@ const getAATransfer = (
                         data: userOp.callData,
                     });
                 } catch (error) {
-                    console.error("Failed to decode call data:", error);
                     continue;
                 }
 
@@ -103,28 +100,27 @@ const getAATransfer = (
                             continue;
                         }
 
-                        // Check first call for target/to and value
-                        const firstCall = calls[0];
-                        if (firstCall && (firstCall.target || firstCall.to)) {
-                            return {
-                                target: (firstCall.target ||
-                                    firstCall.to) as Address,
-                                value: BigInt(firstCall.value || 0),
-                            };
+                        // Process all calls in the array
+                        for (const call of calls) {
+                            if (call && (call.target || call.to)) {
+                                transfers.push({
+                                    target: (call.target || call.to) as Address,
+                                    value: BigInt(call.value || 0),
+                                    sender: userOp.sender as Address,
+                                });
+                            }
                         }
                     }
                 } catch (error) {
-                    console.error("Failed to process call data args:", error);
                     continue;
                 }
             }
         }
     } catch (error) {
-        console.error("Failed to process entry point args:", error);
-        return null;
+        return [];
     }
 
-    return null;
+    return transfers;
 };
 
 interface Transaction {
@@ -156,55 +152,53 @@ class SwapExecutor {
     };
 
     watchTransfers = async () => {
-        console.log("watch is ready");
-
-        const goooodtx = await publicClient.getTransaction({
-            hash: "0x943cb3e54e33afcfdf3974de8583707f1e2c31cd95310de6a5be1a2825165397",
+        const websocketPublicClient = createPublicClient({
+            chain: base,
+            transport: webSocket(
+                `wss://base-mainnet.g.alchemy.com/v2/${process.env.ALCHEMY_API_KEY}`!
+            ),
         });
 
-        const res = getAATransfer(goooodtx);
-
-        if (res) {
-            console.log("res", res);
-            const acc = this.accounts[res.target.toLowerCase()];
-            console.log("acc", acc);
-            if (acc) {
-                console.log("execute that shit");
-                this.executeOrder(acc, {
-                    from: goooodtx.from,
-                    to: res.target,
-                    value: res.value,
-                    hash: goooodtx.hash,
-                });
-            }
-        }
-
-        if (res.target) console.log(res);
-        const unwatch = publicClient.watchBlocks({
+        const unwatch = websocketPublicClient.watchBlocks({
             includeTransactions: true,
             blockTag: "latest",
+            emitMissed: true,
             onBlock: async (block) => {
+                console.log("block", block.number);
+
                 const transactions = block.transactions;
                 for (const tx of transactions) {
-                    if (
+                    const aaTransfer = getAATransfer(tx);
+
+                    if (aaTransfer.length > 0) {
+                        console.log(
+                            "found AA transfers",
+                            aaTransfer.map((t) => t.target.toLowerCase())
+                        );
+
+                        const acc =
+                            this.accounts[aaTransfer[0].target.toLowerCase()];
+
+                        if (acc) {
+                            console.log(
+                                "AA transfers are to one of our vaults. Execute trades"
+                            );
+                            for (const t of aaTransfer) {
+                                this.executeOrder(acc, {
+                                    ...tx,
+                                    to: t.target,
+                                    value: t.value,
+                                });
+                            }
+                        }
+                    } else if (
                         typeof tx.to === "string" &&
                         typeof tx.from === "string"
                     ) {
                         const acc = this.accounts[tx.to.toLowerCase()];
 
                         if (acc) {
-                            const transfer = getAATransfer(tx);
-                            if (transfer) {
-                                // Use transfer.target and transfer.value instead of tx properties
-                                this.executeOrder(acc, {
-                                    ...tx,
-                                    to: transfer.target,
-                                    value: transfer.value,
-                                });
-                            } else {
-                                // Fall back to original tx data if AA transfer detection fails
-                                this.executeOrder(acc, tx);
-                            }
+                            this.executeOrder(acc, tx);
                         }
                     }
                 }
@@ -215,23 +209,38 @@ class SwapExecutor {
         });
     };
 
+    private getBundlerClientFromAcc = async (acc: AccountEntry) => {
+        const owner = privateKeyToAccount(acc.privateKey as `0x${string}`);
+
+        const client = createClient({
+            chain: base,
+            transport: http(),
+            account: owner,
+        });
+
+        const account = await toCoinbaseSmartAccount({
+            client,
+            owners: [owner],
+        });
+
+        const paymasterClient = createPaymasterClient({
+            transport: http(process.env.BASE_PAYMASTER_URL!),
+        });
+
+        const bundlerClient = createBundlerClient({
+            account,
+            client,
+            paymaster: paymasterClient,
+            transport: http(process.env.BASE_PAYMASTER_URL),
+        });
+
+        return { bundlerClient, account };
+    };
+
     executeOrder = async (acc: AccountEntry, tx: Transaction) => {
         try {
-            const pkAccount = privateKeyToAccount(
-                acc.privateKey as `0x${string}`
-            );
-
-            const client = createClient({
-                chain: base,
-                account: pkAccount,
-                transport: http(),
-            });
-
-            const account = await toCoinbaseSmartAccount({
-                owners: [pkAccount],
-                client: client,
-            });
-
+            const { bundlerClient, account } =
+                await this.getBundlerClientFromAcc(acc);
             const amount = tx.value;
             console.info(
                 `Processing transaction for account: ${acc.address}, Amount: ${amount}`
@@ -270,34 +279,22 @@ class SwapExecutor {
                     };
                 })
             );
+            if (!account) {
+                throw new Error("Account not found");
+            }
 
-            console.debug("Compiled call data for transactions:", calls);
-
-            const walletClient = createWalletClient({
+            const op = bundlerClient.sendUserOperation as any;
+            const hash = await op({
                 account,
-                chain: base,
-                transport: http(),
-                // transport: http(process.env.BASE_RPC_URL!),
-            }).extend(eip5792Actions());
-
-            const id = await walletClient.sendCalls({
-                chain: base,
-                account: account.address as Address,
                 calls,
-                capabilities: {
-                    paymasterService: {
-                        url: process.env.BASE_PAYMASTER_URL!,
-                    },
-                },
             });
-            console.info(`Transaction calls sent, ID: ${id}`);
-            const status = await walletClient.showCallsStatus({
-                id,
+
+            console.log(hash);
+            const receipt = await bundlerClient.waitForUserOperationReceipt({
+                hash,
             });
-            console.info(
-                "Transaction status:",
-                JSON.stringify(status, null, 2)
-            );
+
+            console.log(receipt);
         } catch (error) {
             console.error("Error executing swap:", error);
             this.sendBackEth(acc, BigInt(tx.value));
@@ -327,43 +324,31 @@ class SwapExecutor {
     };
 
     sendBackEth = async (acc: AccountEntry, amount: bigint) => {
-        return;
         try {
-            const pkAccount = privateKeyToAccount(
-                acc.privateKey as `0x${string}`
-            );
+            const { bundlerClient, account } =
+                await this.getBundlerClientFromAcc(acc);
 
-            const client = createPublicClient({
-                chain: base,
-                transport: http(),
+            const calls = [
+                {
+                    to: acc.address as Address,
+                    value: amount,
+                    data: "0x",
+                },
+            ];
+
+            const op = bundlerClient.sendUserOperation as any;
+            const hash = await op({
+                account,
+                calls,
             });
 
-            const account = await toCoinbaseSmartAccount({
-                client: client,
-                owners: [pkAccount],
-            } as any);
-
-            const walletClient = createWalletClient({
-                account,
-                chain: base,
-                transport: http(process.env.BASE_RPC_URL!),
-            }).extend(eip5792Actions());
-
-            const transaction = await walletClient.sendTransaction({
-                chain: base,
-                account: account,
-                to: acc.address as Address,
-                value: amount,
-                kzg: undefined,
-                capabilities: {
-                    paymasterService: {
-                        url: process.env.BASE_PAYMASTER_URL!,
-                    },
-                },
+            console.log(hash);
+            const receipt = await bundlerClient.waitForUserOperationReceipt({
+                hash,
             });
 
             console.info(
-                `ETH successfully sent back to user: ${acc.address}, Transaction: ${transaction}`
+                `ETH successfully sent back to user: ${acc.address}, Transaction: ${receipt.receipt.transactionHash}`
             );
         } catch (error) {
             console.error("Error sending back ETH:", error);

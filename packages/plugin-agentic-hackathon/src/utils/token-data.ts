@@ -201,7 +201,7 @@ async function fetchTokenDataForTimestamp(
     }));
 
     // Sort by heat ratio for final output
-    const finalData = dataWithSizes.sort((a, b) => b.heatRatio - a.heatRatio);
+    const finalData = dataWithSizes;
 
     // Write processed data to cache
     if (finalData.length > 0) {
@@ -233,103 +233,4 @@ export async function fetchAllTokens(): Promise<TokenData[]> {
     }
 
     return result;
-}
-
-async function fetchSwapsPage(
-    timestamp: number,
-    first: number = 100,
-    skip: number = 0
-): Promise<SwapData[]> {
-    const query = `
-    query {
-        swaps(
-            first: ${first}
-            skip: ${skip}
-            where: { timestamp_gte: ${timestamp} }
-            orderBy: timestamp
-            orderDirection: desc
-        ) {
-            amount0
-            amount1
-            token0 {
-                id
-                symbol
-            }
-            token1 {
-                id
-                symbol
-            }
-        }
-    }`;
-
-    const response = await fetch(graphURL, {
-        method: "POST",
-        headers: {
-            "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ query }),
-    });
-
-    const data = await response.json();
-    return data.data.swaps;
-}
-
-export async function getSwapsData(): Promise<SwapData[]> {
-    // Get current timestamp in seconds
-    const currentTime = Math.floor(Date.now() / 1000);
-    const currentHour = Math.floor(currentTime / 3600) * 3600;
-    const previousHour = currentHour - 3600;
-
-    // Check cache
-    const cacheDir = path.join(process.cwd(), "..", "cache");
-    const cacheFile = path.join(cacheDir, `swaps_data.json`); // Remove hourly timestamp from filename
-
-    // Create cache directory if it doesn't exist
-    if (!fs.existsSync(cacheDir)) {
-        fs.mkdirSync(cacheDir, { recursive: true });
-    }
-
-    // Check if cache exists and is less than 1 minute old
-    if (fs.existsSync(cacheFile)) {
-        const stats = fs.statSync(cacheFile);
-        const cacheAge = (Date.now() - stats.mtimeMs) / 1000; // age in seconds
-
-        if (cacheAge < 60) {
-            // 1 minute cache
-            console.log("Using cached swaps data");
-            return JSON.parse(fs.readFileSync(cacheFile, "utf-8"));
-        }
-    }
-
-    console.log("Fetching fresh swaps data");
-    const pageSize = 1000;
-    const allSwaps: SwapData[] = [];
-
-    let hasMore = true;
-    let page = 0;
-
-    while (hasMore) {
-        console.log("Fetching page:", page);
-        const pageData = await fetchSwapsPage(
-            previousHour,
-            pageSize,
-            page * pageSize
-        );
-
-        console.log("PAGE[]", pageData[pageData.length - 1]);
-        console.log("PAGE DATA::", pageData.length);
-
-        if (pageData.length === 0) {
-            hasMore = false;
-        } else {
-            allSwaps.push(...pageData);
-            page++;
-        }
-    }
-
-    // Write to cache
-    fs.writeFileSync(cacheFile, JSON.stringify(allSwaps, null, 2));
-    console.log("Wrote swaps data to cache");
-
-    return allSwaps;
 }

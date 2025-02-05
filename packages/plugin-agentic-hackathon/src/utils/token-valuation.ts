@@ -56,7 +56,7 @@ export interface ScoreDetails {
     };
 }
 
-interface TimeWeightedMetrics {
+export interface TimeWeightedMetrics {
     shortTerm: {
         priceChange5m: number;
         volumeChange5m: number;
@@ -71,26 +71,13 @@ interface TimeWeightedMetrics {
     };
 }
 
-interface LiquidityHealth {
+export interface LiquidityHealth {
     concentration: number; // How concentrated is liquidity
     stability: number; // How stable is liquidity over time
     depth: number; // How deep is the liquidity
 }
 
-interface MarketContext {
-    sectorPerformance: number;
-    overallVolumeTrend: number;
-    majorTokenCorrelation: number;
-}
-
-interface TransactionMetrics {
-    buyPressure: number; // Ratio of buys to total transactions
-    volumeAcceleration: number; // Rate of volume change
-    shortTermMomentum: number; // Recent price movement weighted
-    socialSignals: number; // Presence of social/website links
-}
-
-interface EnhancedLiquidityHealth extends LiquidityHealth {
+export interface EnhancedLiquidityHealth extends LiquidityHealth {
     buyPressure: {
         m5: number;
         h1: number;
@@ -105,7 +92,20 @@ interface EnhancedLiquidityHealth extends LiquidityHealth {
     };
 }
 
-interface EnhancedScoreDetails extends ScoreDetails {
+export interface MarketContext {
+    sectorPerformance: number;
+    overallVolumeTrend: number;
+    majorTokenCorrelation: number;
+}
+
+export interface TransactionMetrics {
+    buyPressure: number; // Ratio of buys to total transactions
+    volumeAcceleration: number; // Rate of volume change
+    shortTermMomentum: number; // Recent price movement weighted
+    socialSignals: number; // Presence of social/website links
+}
+
+export interface EnhancedScoreDetails extends ScoreDetails {
     timeWeighted: TimeWeightedMetrics;
     smartMoneyMomentum: number;
     liquidityHealth: EnhancedLiquidityHealth;

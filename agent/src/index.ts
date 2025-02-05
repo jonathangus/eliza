@@ -43,7 +43,7 @@ import {
 } from "@elizaos/core";
 import { defaultCharacter } from "./agentic-character";
 import { normalizeCharacter } from "@elizaos/plugin-di";
-import { swapExecutor, swapStorer } from "@elizaos/plugin-agentic-hackathon";
+import { initializePlugin } from "@elizaos/plugin-agentic-hackathon";
 
 import { createNodePlugin } from "@elizaos/plugin-node";
 
@@ -973,7 +973,7 @@ async function startAgent(
         // report to console
         elizaLogger.debug(`Started ${character.name} as ${runtime.agentId}`);
 
-        swapExecutor.init(runtime);
+        initializePlugin(runtime);
         return runtime;
     } catch (error) {
         elizaLogger.error(
@@ -1049,7 +1049,6 @@ const startAgents = async () => {
 
     directClient.loadCharacterTryPath = loadCharacterTryPath;
     directClient.jsonToCharacter = jsonToCharacter;
-    swapStorer.init();
 
     directClient.start(serverPort);
 

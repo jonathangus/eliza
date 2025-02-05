@@ -50,7 +50,6 @@ export class LensInteractionManager {
                     1000 // Default to 2 minutes
             );
         };
-        this.handleInteractions();
         handleInteractionsLoop();
     }
 

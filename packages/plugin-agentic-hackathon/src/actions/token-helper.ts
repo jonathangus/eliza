@@ -9,23 +9,14 @@ import {
     ModelClass,
     generateObject,
 } from "@elizaos/core";
-import { fetchAllTokens, TokenData } from "../utils/token-data";
-import { swapStorer, GoodTraderSwap, TokenInfo } from "../swap-storer";
 import { generateText, composeContext } from "@elizaos/core";
-import { fetchTokenData, DexScreenerResponse } from "../utils/dextools";
 import { z } from "zod";
-import {
-    enhancedDynamicScore,
-    buildScoringRanges,
-} from "../utils/token-valuation";
-import { OpacityAdapter } from "@elizaos/plugin-opacity";
-import fs from "fs";
-import path from "path";
+import { onChainDataStorer } from "../onchain-data-storer";
 import { Redis } from "@upstash/redis";
 import { swapExecutor } from "../swap-executor";
 import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 import { base } from "viem/chains";
-import { createClient, http } from "viem";
+import { createClient, getAddress, http } from "viem";
 
 const redis = Redis.fromEnv();
 
@@ -39,6 +30,7 @@ const template = `
 You are a **trading assistant**. Given the user's request, you must determine:
 1. **Risk Level** of the requested trade (**LOW**, **MID**, or **HIGH**).
 2. **How much total** the user wants to spend.
+3. **How many tokens** the user wants to buy.
 
 Instructions:
 - **If the user does not specify how much they want to spend**, set \amount\ to **null**.
@@ -57,6 +49,7 @@ Instructions:
         "amount": string | null,
         "risk": "LOW" | "MID" | "HIGH",
         "originalQuestion": string,
+        "tokenCount": number,
     }
     \\\
 `;
@@ -83,6 +76,7 @@ Constraints:
 - Answer should be a single sentence that summarizes the user's request and the output from our allocation plan in the  voice and style and perspective of {{agentName}}
 - Keymetrics should be coming from the token data to be extracted
 
+User want to buy {{tokenCount}} tokens. Only return this amount of suggested tokens.
 User request: {{currentMessage}}  
 Amount: {{amount}}  
 Date: {{date}}
@@ -157,8 +151,6 @@ export const tokenHelperAction: Action = {
             currentState = await runtime.updateRecentMessageState(currentState);
         }
 
-        const recentInteractionsData = state.recentMessagesData;
-
         state.currentMessage =
             state.recentMessagesData?.[1]?.content.text ||
             state.recentMessagesData?.[0]?.content.text ||
@@ -171,6 +163,7 @@ export const tokenHelperAction: Action = {
         const firstCallSchema = z.object({
             amount: z.string().nullable(),
             risk: z.enum(["LOW", "MID", "HIGH"]),
+            tokenCount: z.number(),
         });
         const { object } = await generateObject({
             runtime,
@@ -179,101 +172,23 @@ export const tokenHelperAction: Action = {
             schema: firstCallSchema,
         });
 
-        const { amount, risk } = firstCallSchema.parse(object);
+        const { amount, risk, tokenCount } = firstCallSchema.parse(object);
 
-        const allTokens = await fetchAllTokens();
-        const swapsData = swapStorer.getInfo();
-        const goodTraderActions = swapStorer.getGoodTraderActivity();
+        onChainDataStorer.updateTopState();
 
-        const ranges = buildScoringRanges(
-            allTokens,
-            swapsData,
-            goodTraderActions
-        );
+        const tokensWithDextools = onChainDataStorer
+            .getTokensByRisk(risk)
+            .slice(0, 7); // only care about the top 7 tokens for now
 
-        const enriched = [];
-        for (const t of allTokens) {
-            await new Promise((resolve) => setTimeout(resolve, 500));
-
-            const dexData = await fetchTokenData(t.contractAddress);
-
-            const finalScore = enhancedDynamicScore(
-                t,
-                swapsData,
-                goodTraderActions,
-                ranges,
-                dexData
-            );
-
-            const risk = getRisk(t.size);
-
-            enriched.push({
-                ...t,
-                risk,
-                finalScoreValue: finalScore.finalScore,
-                scoreDetails: {
-                    breakdown: finalScore.breakdown,
-                    weightedBreakdown: finalScore.weightedBreakdown,
-                    weights: finalScore.weights,
-                    explanation: finalScore.explanation,
-                    metrics: finalScore.metrics,
-                },
-                enhancedMetrics: {
-                    timeWeighted: finalScore.timeWeighted,
-                    smartMoneyMomentum: finalScore.smartMoneyMomentum,
-                    liquidityHealth: finalScore.liquidityHealth,
-                    riskAdjusted: finalScore.riskAdjusted,
-                    marketContext: finalScore.marketContext,
-                },
-            });
-        }
-
-        const ignoreTokens = ["USD", "BTC", "ETH", "Stable", "DAI"];
-        const selectedTokens = enriched
-            .filter((x) => x.risk === risk)
-            .filter(
-                (x) =>
-                    !ignoreTokens.some((tokenName) =>
-                        x.name.toLowerCase().includes(tokenName.toLowerCase())
-                    )
-            )
-            .sort(
-                (a, b) =>
-                    b.enhancedMetrics.riskAdjusted -
-                    a.enhancedMetrics.riskAdjusted
-            )
-            .slice(0, 8);
-
-        const tokensWithDextools = await Promise.all(
-            selectedTokens.map(async (tok) => {
-                return {
-                    ...tok,
-                    dexTools: await fetchTokenData(tok.contractAddress),
-                };
-            })
-        );
-
-        const finalTokens = tokensWithDextools.map((tok) => {
-            return {
-                ...tok,
-                dexTools: {
-                    ...tok.dexTools,
-                    pairs: tok.dexTools.pairs.map((pair) => {
-                        return {
-                            ...pair,
-                            info: undefined,
-                        };
-                    }),
-                },
-            };
-        });
-        state.finalTokens = JSON.stringify(finalTokens);
+        state.finalTokens = JSON.stringify(tokensWithDextools);
         state.amount = amount;
         state.date = new Date().toISOString();
         state.risk = risk;
+        state.tokenCoun = tokenCount;
 
         const context2 = composeContext({ state, template: secondTemplate });
 
+        console.log("generating text");
         const result = await generateText({
             runtime,
             context: context2,
@@ -286,14 +201,12 @@ export const tokenHelperAction: Action = {
         );
 
         buyTokenAction.order = buyTokenAction.order.map((x) => {
-            const token = tokensWithDextools.find(
-                (y) =>
-                    y.contractAddress.toLowerCase() ===
-                    x.contractAddress.toLowerCase()
+            const tokenInfo = onChainDataStorer.getInfoFromContractAddress(
+                x.contractAddress
             );
             return {
                 ...x,
-                tokenInfo: token?.dexTools?.pairs?.[0]?.info,
+                tokenInfo,
             };
         });
 
@@ -319,9 +232,11 @@ export const tokenHelperAction: Action = {
 
         console.info("Generated account address for order:", account.address);
 
-        const output = `${buyTokenAction.summary} Execute the trade on https://based-helper.vercel.app/${uuid}
-        
-        Send ETH to ${account.address} to execute the trade. Remember this is a hackathon project and your funds might be lost. `;
+        const output = `${
+            buyTokenAction.summary
+        } Execute the trade on https://based-helper.vercel.app/${uuid}\n\nSend ETH on Base to ${getAddress(
+            account.address
+        )} to execute the trade. Remember this is not NFA and was built by a random dude in a hackathon project and your funds might be lost. `;
 
         swapExecutor.addEntry({
             id: uuid,

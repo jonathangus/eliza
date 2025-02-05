@@ -1,4 +1,4 @@
-interface TokenInfo {
+export interface DexTokenInfo {
     imageUrl: string;
     header: string;
     openGraph: string;
@@ -74,7 +74,7 @@ export interface Pair {
     fdv: number;
     marketCap: number;
     pairCreatedAt: number;
-    info: TokenInfo;
+    info: DexTokenInfo;
     boosts: {
         active: number;
     };
@@ -106,6 +106,3 @@ export async function fetchTokenData(
         return null;
     }
 }
-
-// Example usage:
-// const tokenData = await fetchTokenData("0x23dd3ce6161422622e773e13dac2781c7f990d45");
