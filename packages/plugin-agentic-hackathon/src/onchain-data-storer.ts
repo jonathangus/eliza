@@ -219,27 +219,39 @@ class OnchainDataStorer {
                 Date.now() - this.graphCache.timestamp > 60 * 60 * 1000
             ) {
                 const tokens = await fetchAllTokens();
-                this.allTokens = tokens;
-                this.graphCache = {
-                    timestamp: Date.now(),
-                    data: tokens,
-                };
-                await this.saveCacheToDisk();
-                console.log("Graph data backfilled successfully");
+                if (tokens && tokens.length > 0) {
+                    this.allTokens = tokens;
+                    this.graphCache = {
+                        timestamp: Date.now(),
+                        data: tokens,
+                    };
+                    await this.saveCacheToDisk();
+                    console.log("Graph data backfilled successfully");
+                } else {
+                    console.warn("No tokens returned from fetchAllTokens");
+                    // Use existing data if available
+                    if (this.graphCache) {
+                        console.log("Using existing cached data");
+                        this.allTokens = this.graphCache.data;
+                    }
+                }
             } else {
                 console.log("Using cached Graph data");
                 this.allTokens = this.graphCache.data;
             }
         } catch (error) {
             console.error("Error backfilling Graph data:", error);
-            throw error; // Throw error as this is critical data
+            // Use existing data if available instead of throwing
+            if (this.graphCache) {
+                console.log("Using existing cached data after error");
+                this.allTokens = this.graphCache.data;
+            }
         }
     };
 
     private backfillDexData = async () => {
         console.log("Backfilling Dex data...");
         try {
-            // Only fetch DEX data for enriched tokens (top tokens)
             const tokens = this.enrichedTokens;
             const now = Date.now();
 
@@ -259,8 +271,6 @@ class OnchainDataStorer {
                         continue;
                     }
 
-                    // Add delay to avoid rate limiting
-
                     console.log(`Fetching DEX data for ${token.symbol}`);
                     const data = await fetchDexTokenData(token.contractAddress);
                     if (data) {
@@ -269,20 +279,24 @@ class OnchainDataStorer {
                             address: token.contractAddress,
                             data,
                         });
-
-                        await this.saveCacheToDisk();
                     }
+
+                    // Add a small delay between requests to avoid rate limiting
+                    await new Promise((resolve) => setTimeout(resolve, 500));
                 } catch (error) {
                     console.error(
                         `Error backfilling DEX data for token ${token.contractAddress}:`,
                         error
                     );
+                    continue; // Continue with next token if one fails
                 }
             }
 
+            await this.saveCacheToDisk();
             console.log("Dex data backfill completed");
         } catch (error) {
             console.error("Error in backfillDexData:", error);
+            // Continue execution, don't throw
         }
     };
 

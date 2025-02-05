@@ -39,188 +39,207 @@ export interface TokenData {
     size: TokenSize;
 }
 
-interface SwapData {
-    amount0: string;
-    amount1: string;
-    token0: {
-        id: string;
-        symbol: string;
-    };
-    token1: {
-        id: string;
-        symbol: string;
-    };
-}
-
 async function fetchTokenData(
     first: number = 100,
     skip: number = 0,
     timestamp: number
 ): Promise<TheGraphTokenData[]> {
-    const query = `
-    query {
-      tokenHourDatas(
-        first: ${first}
-        skip: ${skip}
-        where: { periodStartUnix: ${timestamp}, volumeUSD_gt: 100}
-        orderBy: volumeUSD
-        orderDirection: desc
-      ) {
-        priceUSD
-        totalValueLockedUSD
-        volumeUSD
-        periodStartUnix
-        totalValueLocked
-        token {
-          id
-          name
-          symbol
-          totalValueLocked
-          txCount
-          whitelistPools {
-            createdAtTimestamp
-            id
+    try {
+        const query = `
+        query {
+          tokenHourDatas(
+            first: ${first}
+            skip: ${skip}
+            where: { periodStartUnix: ${timestamp}, volumeUSD_gt: 100}
+            orderBy: volumeUSD
+            orderDirection: desc
+          ) {
+            priceUSD
+            totalValueLockedUSD
+            volumeUSD
+            periodStartUnix
+            totalValueLocked
+            token {
+              id
+              name
+              symbol
+              totalValueLocked
+              txCount
+              whitelistPools {
+                createdAtTimestamp
+                id
+              }
+            }
           }
         }
-      }
+      `;
+
+        const response = await fetch(graphURL, {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ query }),
+        });
+
+        if (!response.ok) {
+            console.error(
+                `API error: ${response.status} ${response.statusText}`
+            );
+            return [];
+        }
+
+        const data = await response.json();
+
+        if (!data?.data?.tokenHourDatas) {
+            console.error("Invalid API response structure:", data);
+            return [];
+        }
+
+        return data.data.tokenHourDatas;
+    } catch (error) {
+        console.error("Error fetching token data:", error);
+        return [];
     }
-  `;
-
-    const response = await fetch(graphURL, {
-        method: "POST",
-        headers: {
-            "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ query }),
-    });
-
-    const data = await response.json();
-
-    return data.data.tokenHourDatas;
 }
 
 async function fetchTokenDataForTimestamp(
     timestamp: number
 ): Promise<TokenData[] | null> {
-    console.log("Fetching data for timestamp:", timestamp);
+    try {
+        console.log("Fetching data for timestamp:", timestamp);
 
-    // Check cache
-    const cacheDir = path.join(process.cwd(), "..", "cache");
-    const cacheFile = path.join(cacheDir, `${timestamp}.json`);
+        // Check cache
+        const cacheDir = path.join(process.cwd(), "..", "cache");
+        const cacheFile = path.join(cacheDir, `${timestamp}.json`);
 
-    // Create cache directory if it doesn't exist
-    if (!fs.existsSync(cacheDir)) {
-        fs.mkdirSync(cacheDir, { recursive: true });
-    }
+        // Create cache directory if it doesn't exist
+        if (!fs.existsSync(cacheDir)) {
+            fs.mkdirSync(cacheDir, { recursive: true });
+        }
 
-    // Try to read from cache
-    if (fs.existsSync(cacheFile)) {
-        console.log("Using cached data from", cacheFile);
-        const cachedData = JSON.parse(fs.readFileSync(cacheFile, "utf-8"));
-        return cachedData;
-    }
+        // Try to read from cache
+        if (fs.existsSync(cacheFile)) {
+            console.log("Using cached data from", cacheFile);
+            const cachedData = JSON.parse(fs.readFileSync(cacheFile, "utf-8"));
+            return cachedData;
+        }
 
-    console.log("Fetching fresh data from API");
-    const pageSize = 100;
-    const numberOfPages = 3;
-    const allData: TheGraphTokenData[] = [];
+        console.log("Fetching fresh data from API");
+        const pageSize = 100;
+        const numberOfPages = 3;
+        const allData: TheGraphTokenData[] = [];
 
-    for (let i = 0; i < numberOfPages; i++) {
-        const pageData = await fetchTokenData(
-            pageSize,
-            i * pageSize,
-            timestamp
+        for (let i = 0; i < numberOfPages; i++) {
+            try {
+                const pageData = await fetchTokenData(
+                    pageSize,
+                    i * pageSize,
+                    timestamp
+                );
+                if (pageData.length === 0) break;
+                allData.push(...pageData);
+            } catch (error) {
+                console.error(`Error fetching page ${i}:`, error);
+                continue; // Continue with next page if one fails
+            }
+        }
+
+        if (allData.length === 0) {
+            return null;
+        }
+
+        // Process data first without size categorization
+        let processedData = allData
+            .filter((item) => {
+                const { token } = item;
+                if (!token.name || !token.symbol) {
+                    return false;
+                }
+                const name = token.name.toUpperCase();
+                const symbol = token.symbol.toUpperCase();
+                return (
+                    !name.includes("USD") &&
+                    !name.includes("ETH") &&
+                    !symbol.includes("USD") &&
+                    !symbol.includes("ETH")
+                );
+            })
+            .map((item) => {
+                const volume = parseFloat(item.volumeUSD);
+                const tvl = parseFloat(item.totalValueLockedUSD);
+
+                const created = item.token.whitelistPools.reduce(
+                    (earliest, pool) => {
+                        const timestamp = parseInt(pool.createdAtTimestamp);
+                        return timestamp < earliest ? timestamp : earliest;
+                    },
+                    Number.MAX_SAFE_INTEGER
+                );
+
+                return {
+                    priceUSD: item.priceUSD,
+                    totalValueLockedUSD: item.totalValueLockedUSD,
+                    volumeUSD: item.volumeUSD,
+                    periodStartUnix: item.periodStartUnix,
+                    totalValueLocked: item.totalValueLocked,
+                    name: item.token.name,
+                    symbol: item.token.symbol,
+                    tokenTotalValueLocked: item.token.totalValueLocked,
+                    txCount: item.token.txCount,
+                    contractAddress: item.token.id,
+                    created: created === Number.MAX_SAFE_INTEGER ? 0 : created,
+                    size: "small" as TokenSize, // temporary value
+                };
+            });
+
+        // Sort by TVL in descending order
+        processedData.sort(
+            (a, b) =>
+                parseFloat(b.totalValueLockedUSD) -
+                parseFloat(a.totalValueLockedUSD)
         );
-        if (pageData.length === 0) break;
-        allData.push(...pageData);
-    }
 
-    if (allData.length === 0) {
+        // Calculate the size boundaries
+        const third = Math.floor(processedData.length / 3);
+        const twoThirds = third * 2;
+
+        // Assign sizes based on position in sorted array
+        const dataWithSizes = processedData.map((item, index) => ({
+            ...item,
+            size:
+                index < third
+                    ? "large"
+                    : index < twoThirds
+                    ? "medium"
+                    : "small",
+        }));
+
+        // Add risk based on size
+        const dataWithSizesAndRisk = dataWithSizes.map((item) => ({
+            ...item,
+            risk:
+                item.size === "large"
+                    ? "LOW"
+                    : item.size === "small"
+                    ? "HIGH"
+                    : "MID",
+        }));
+
+        // Sort by heat ratio for final output
+        const finalData = dataWithSizesAndRisk;
+
+        // Write processed data to cache
+        if (finalData.length > 0) {
+            fs.writeFileSync(cacheFile, JSON.stringify(finalData, null, 2));
+            console.log("Wrote processed data to cache:", cacheFile);
+        }
+
+        return finalData as TokenData[];
+    } catch (error) {
+        console.error("Error in fetchTokenDataForTimestamp:", error);
         return null;
     }
-
-    // Process data first without size categorization
-    let processedData = allData
-        .filter((item) => {
-            const { token } = item;
-            if (!token.name || !token.symbol) {
-                return false;
-            }
-            const name = token.name.toUpperCase();
-            const symbol = token.symbol.toUpperCase();
-            return (
-                !name.includes("USD") &&
-                !name.includes("ETH") &&
-                !symbol.includes("USD") &&
-                !symbol.includes("ETH")
-            );
-        })
-        .map((item) => {
-            const volume = parseFloat(item.volumeUSD);
-            const tvl = parseFloat(item.totalValueLockedUSD);
-
-            const created = item.token.whitelistPools.reduce(
-                (earliest, pool) => {
-                    const timestamp = parseInt(pool.createdAtTimestamp);
-                    return timestamp < earliest ? timestamp : earliest;
-                },
-                Number.MAX_SAFE_INTEGER
-            );
-
-            return {
-                priceUSD: item.priceUSD,
-                totalValueLockedUSD: item.totalValueLockedUSD,
-                volumeUSD: item.volumeUSD,
-                periodStartUnix: item.periodStartUnix,
-                totalValueLocked: item.totalValueLocked,
-                name: item.token.name,
-                symbol: item.token.symbol,
-                tokenTotalValueLocked: item.token.totalValueLocked,
-                txCount: item.token.txCount,
-                contractAddress: item.token.id,
-                created: created === Number.MAX_SAFE_INTEGER ? 0 : created,
-                size: "small" as TokenSize, // temporary value
-            };
-        });
-
-    // Sort by TVL in descending order
-    processedData.sort(
-        (a, b) =>
-            parseFloat(b.totalValueLockedUSD) -
-            parseFloat(a.totalValueLockedUSD)
-    );
-
-    // Calculate the size boundaries
-    const third = Math.floor(processedData.length / 3);
-    const twoThirds = third * 2;
-
-    // Assign sizes based on position in sorted array
-    const dataWithSizes = processedData.map((item, index) => ({
-        ...item,
-        size: index < third ? "large" : index < twoThirds ? "medium" : "small",
-    }));
-
-    // Add risk based on size
-    const dataWithSizesAndRisk = dataWithSizes.map((item) => ({
-        ...item,
-        risk:
-            item.size === "large"
-                ? "LOW"
-                : item.size === "small"
-                ? "HIGH"
-                : "MID",
-    }));
-
-    // Sort by heat ratio for final output
-    const finalData = dataWithSizesAndRisk;
-
-    // Write processed data to cache
-    if (finalData.length > 0) {
-        fs.writeFileSync(cacheFile, JSON.stringify(finalData, null, 2));
-        console.log("Wrote processed data to cache:", cacheFile);
-    }
-
-    return finalData as TokenData[];
 }
 
 export async function fetchAllTokens(): Promise<TokenData[]> {
