@@ -69,7 +69,7 @@ We want a **hypothetical** allocation plan for the tokens based on:
 1. finalScoreValue  
 2. scoreDetails  
 3. enhancedMetrics (including Smart Money Momentum, Liquidity Health, Time-weighted price/volume changes, Risk-adjusted score, Market context)
-
+ 
 Constraints:
 - Percentages must total 100% (in decimal form).  
 - Allocate higher percentages to tokens with better risk-adjusted scores, higher liquidity health, and positive smart money momentum.  
@@ -88,7 +88,8 @@ Wanted risk: {{risk}}
 # About {{agentName}
 {{bio}} 
 
-
+Important: Make sure that the return percentage always is summarized to 100%:
+Important: Make sure the amount of tokens requested always is presented in the "order" array
 IMPORTANT: Return only this JSON (no extra text, no formatting):
 
 {
@@ -204,22 +205,6 @@ export const tokenHelperAction: Action = {
         const tokensWithDextools = onChainDataStorer
             .getTokensByRisk(risk)
             .slice(0, 7); // only care about the top 7 tokens for now
-
-        console.log(":::::::tokensWithDextools");
-
-        fs.writeFileSync(
-            "tokensWithDextools.json",
-            JSON.stringify(
-                {
-                    tokensWithDextools,
-                    amount,
-                    risk,
-                    tokenCount,
-                },
-                null,
-                2
-            )
-        );
 
         state.finalTokens = JSON.stringify(tokensWithDextools);
         state.amount = amount;

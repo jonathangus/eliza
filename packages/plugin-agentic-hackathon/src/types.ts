@@ -5,6 +5,21 @@ export type Order = {
     decimals: number;
     name: string;
     summary?: string;
+    explanation: {
+        tvl: string;
+        volume: string;
+        netBuys: string;
+        goodTrader: string;
+        heat: string;
+    };
+    keyMetrics: {
+        liquidityHealth: string;
+        riskAdjusted: string;
+        marketContext: string;
+        tvl: string;
+        volume: string;
+        price: string;
+    };
     info?: {
         imageUrl?: string;
         websites?: Array<{

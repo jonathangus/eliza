@@ -128,72 +128,108 @@ export const DEFAULT_WEIGHTS: ScoringWeights = {
     heat: 0.2,
 };
 
-export function buildScoringRanges(
+// New helper for volume scoring by size
+function getVolumeScore(
+    volume: number,
+    size: string,
+    ranges: Record<string, ScoringRanges> | ScoringRanges
+): number {
+    const sizeRanges: ScoringRanges =
+        "medium" in ranges
+            ? (ranges as Record<string, ScoringRanges>)[size] ||
+              (ranges as Record<string, ScoringRanges>)["medium"]
+            : (ranges as ScoringRanges);
+    return scaleTo0to10(
+        volume,
+        sizeRanges.volumeMin,
+        sizeRanges.volumeMax,
+        false
+    );
+}
+
+// Modified heat ratio scoring
+function getHeatScore(heat: number): number {
+    return heat * 1000; // Multiply by 1000 instead of 100
+}
+
+// Modified net buys scoring
+function getNetBuyScore(buys: number, sells: number): number {
+    if (buys === 0 && sells === 0) return 0;
+    return buys - sells;
+}
+
+// Modified smart money scoring
+function getSmartMoneyScore(buyCount: number, sellCount: number): number {
+    if (buyCount === 0 && sellCount === 0) return 0;
+    return buyCount - sellCount;
+}
+
+function groupBy<T>(array: T[], key: (item: T) => string): Record<string, T[]> {
+    return array.reduce((result: Record<string, T[]>, item: T) => {
+        const group: string = key(item);
+        result[group] = result[group] || [];
+        result[group].push(item);
+        return result;
+    }, {});
+}
+
+function calculateRangesForGroup(
     tokens: TokenData[],
     swapsData: TokenInfo[],
     goodTraderActions: GoodTraderSwap[]
 ): ScoringRanges {
-    let tvlMin = Number.POSITIVE_INFINITY,
-        tvlMax = 0;
-    let volumeMin = Number.POSITIVE_INFINITY,
-        volumeMax = 0;
-    let netBuyMin = Number.POSITIVE_INFINITY,
-        netBuyMax = Number.NEGATIVE_INFINITY;
-    let goodTraderDiffMin = Number.POSITIVE_INFINITY,
-        goodTraderDiffMax = Number.NEGATIVE_INFINITY;
-    let heatMin = Number.POSITIVE_INFINITY,
-        heatMax = 0;
+    let tvlMin: number = Number.POSITIVE_INFINITY,
+        tvlMax: number = 0;
+    let volumeMin: number = Number.POSITIVE_INFINITY,
+        volumeMax: number = 0;
+    let netBuyMin: number = Number.POSITIVE_INFINITY,
+        netBuyMax: number = Number.NEGATIVE_INFINITY;
+    let goodTraderDiffMin: number = Number.POSITIVE_INFINITY,
+        goodTraderDiffMax: number = Number.NEGATIVE_INFINITY;
+    let heatMin: number = Number.POSITIVE_INFINITY,
+        heatMax: number = 0;
 
-    // Precompute netBuy (buys - sells) for each token
-    const netBuyMap: Record<string, number> = {};
-    for (const info of swapsData) {
-        const net = info.buys - info.sold;
-        netBuyMap[info.contractAddress.toLowerCase()] = net;
-    }
-
-    // Precompute goodTraderDiff in last 30 minutes
-    const cutoff = Date.now() - 30 * 60 * 1000;
-    const goodTraderCount: Record<string, { buys: number; sells: number }> = {};
-    for (const trade of goodTraderActions) {
-        const addr = trade.token.address.toLowerCase();
-        if (!goodTraderCount[addr]) {
-            goodTraderCount[addr] = { buys: 0, sells: 0 };
-        }
-        if (trade.timestamp > cutoff) {
-            if (trade.action === "BUY") goodTraderCount[addr].buys++;
-            else if (trade.action === "SELL") goodTraderCount[addr].sells++;
-        }
-    }
-
-    // Loop all tokens to find global min/max
+    // Process tokens in group
     for (const t of tokens) {
-        const tvl = parseFloat(t.totalValueLockedUSD) || 0;
-        const vol = parseFloat(t.volumeUSD) || 0;
-        const heat = calculateHeatRatio(t);
+        const tvl: number = parseFloat(t.totalValueLockedUSD) || 0;
+        const vol: number = parseFloat(t.volumeUSD) || 0;
+        const heat: number = calculateHeatRatio(t);
 
-        const netBuys = netBuyMap[t.contractAddress.toLowerCase()] ?? 0;
-        const gCount = goodTraderCount[t.contractAddress.toLowerCase()] || {
-            buys: 0,
-            sells: 0,
-        };
-        const goodTraderDiff = gCount.buys - gCount.sells;
+        const info: TokenInfo | undefined = swapsData.find(
+            (x) =>
+                x.contractAddress.toLowerCase() ===
+                t.contractAddress.toLowerCase()
+        );
+        const netBuys: number = info ? info.buys - info.sold : 0;
 
-        if (tvl < tvlMin) tvlMin = tvl;
-        if (tvl > tvlMax) tvlMax = tvl;
+        const cutoff: number = Date.now() - 30 * 60 * 1000;
+        const smartMoneyBuys: number = goodTraderActions.filter(
+            (g) =>
+                g.token.address.toLowerCase() ===
+                    t.contractAddress.toLowerCase() &&
+                g.action === "BUY" &&
+                g.timestamp > cutoff
+        ).length;
+        const smartMoneySells: number = goodTraderActions.filter(
+            (g) =>
+                g.token.address.toLowerCase() ===
+                    t.contractAddress.toLowerCase() &&
+                g.action === "SELL" &&
+                g.timestamp > cutoff
+        ).length;
+        const goodTraderDiff: number = smartMoneyBuys - smartMoneySells;
 
-        if (vol < volumeMin) volumeMin = vol;
-        if (vol > volumeMax) volumeMax = vol;
-
-        if (netBuys < netBuyMin) netBuyMin = netBuys;
-        if (netBuys > netBuyMax) netBuyMax = netBuys;
-
-        if (goodTraderDiff < goodTraderDiffMin)
-            goodTraderDiffMin = goodTraderDiff;
-        if (goodTraderDiff > goodTraderDiffMax)
-            goodTraderDiffMax = goodTraderDiff;
-
-        if (heat < heatMin) heatMin = heat;
-        if (heat > heatMax) heatMax = heat;
+        // Update min/max values
+        tvlMin = Math.min(tvlMin, tvl);
+        tvlMax = Math.max(tvlMax, tvl);
+        volumeMin = Math.min(volumeMin, vol);
+        volumeMax = Math.max(volumeMax, vol);
+        netBuyMin = Math.min(netBuyMin, netBuys);
+        netBuyMax = Math.max(netBuyMax, netBuys);
+        goodTraderDiffMin = Math.min(goodTraderDiffMin, goodTraderDiff);
+        goodTraderDiffMax = Math.max(goodTraderDiffMax, goodTraderDiff);
+        heatMin = Math.min(heatMin, heat);
+        heatMax = Math.max(heatMax, heat);
     }
 
     return {
@@ -210,162 +246,162 @@ export function buildScoringRanges(
     };
 }
 
+export function buildScoringRanges(
+    tokens: TokenData[],
+    swapsData: TokenInfo[],
+    goodTraderActions: GoodTraderSwap[]
+): Record<string, ScoringRanges> {
+    // Group tokens by size
+    const sizeGroups: Record<string, TokenData[]> = groupBy(
+        tokens,
+        (t) => t.size || "medium"
+    );
+
+    const ranges: Record<string, ScoringRanges> = {};
+
+    // Calculate ranges for each size group
+    for (const [size, sizeTokens] of Object.entries(sizeGroups)) {
+        ranges[size] = calculateRangesForGroup(
+            sizeTokens,
+            swapsData,
+            goodTraderActions
+        );
+    }
+
+    return ranges;
+}
+
 /** Helper to scale a metric into 0..10 linearly. If invert=true => lower is better. */
 export function scaleTo0to10(
     val: number,
     minVal: number,
     maxVal: number,
-    invert = false
+    invert: boolean = false
 ): number {
     if (maxVal === minVal) {
-        // All tokens share the same metric => neutral sub-score
         return 5;
     }
-    let ratio = 0;
+    let ratio: number = 0;
     if (invert) {
         ratio = (maxVal - val) / (maxVal - minVal);
     } else {
         ratio = (val - minVal) / (maxVal - minVal);
     }
-    const scaled = 10 * ratio; // 0..10
+    const scaled: number = 10 * ratio;
     return Math.max(0, Math.min(10, scaled));
 }
 
-// Add this function to calculate heat ratio
 function calculateHeatRatio(token: TokenData): number {
-    const volume = parseFloat(token.volumeUSD);
-    const tvl = parseFloat(token.totalValueLockedUSD);
+    const volume: number = parseFloat(token.volumeUSD);
+    const tvl: number = parseFloat(token.totalValueLockedUSD);
     return tvl > 0 ? volume / tvl : 0;
 }
 
-// Modify the dynamicScore function to calculate heat ratio
 export function dynamicScore(
     token: TokenData,
     swapsData: TokenInfo[],
     goodTraderActions: GoodTraderSwap[],
-    ranges: ScoringRanges,
+    ranges: Record<string, ScoringRanges> | ScoringRanges,
     weights: Partial<ScoringWeights> = {}
 ): ScoreDetails {
-    // Merge provided weights with defaults
-    const finalWeights: ScoringWeights = {
-        ...DEFAULT_WEIGHTS,
-        ...weights,
-    };
+    const size: string = token.size || "medium";
+    const sizeRanges: ScoringRanges =
+        "medium" in ranges
+            ? (ranges as Record<string, ScoringRanges>)[size] ||
+              (ranges as Record<string, ScoringRanges>)["medium"]
+            : (ranges as ScoringRanges);
 
-    // Normalize weights to ensure they sum to 1
-    const weightSum = Object.values(finalWeights).reduce((a, b) => a + b, 0);
-    const normalizedWeights: ScoringWeights = Object.entries(
-        finalWeights
-    ).reduce(
-        (acc, [key, value]) => ({
-            ...acc,
-            [key]: value / weightSum,
-        }),
-        {} as ScoringWeights
+    const tvl: number = parseFloat(token.totalValueLockedUSD) || 0;
+    const vol: number = parseFloat(token.volumeUSD) || 0;
+    const heat: number = calculateHeatRatio(token);
+
+    // Calculate scores using new methods
+    const tvlScore: number = scaleTo0to10(
+        tvl,
+        sizeRanges.tvlMin,
+        sizeRanges.tvlMax,
+        false
     );
+    const volumeScore: number = getVolumeScore(vol, size, ranges);
+    const heatScore: number = getHeatScore(heat);
 
-    const tvl = parseFloat(token.totalValueLockedUSD) || 0;
-    const vol = parseFloat(token.volumeUSD) || 0;
-    const heat = calculateHeatRatio(token);
-
-    // net buys
-    const info = swapsData.find(
+    // Get net buys data
+    const info: TokenInfo | undefined = swapsData.find(
         (x) =>
             x.contractAddress.toLowerCase() ===
             token.contractAddress.toLowerCase()
     );
-    const netBuys = info ? info.buys - info.sold : 0;
+    const netBuyScore: number = getNetBuyScore(
+        info?.buys || 0,
+        info?.sold || 0
+    );
 
-    // good trader diff
-    const cutoff = Date.now() - 30 * 60 * 1000;
-    const buyCount = goodTraderActions.filter(
+    // Get smart money data
+    const cutoff: number = Date.now() - 30 * 60 * 1000;
+    const smartMoneyBuys: number = goodTraderActions.filter(
         (g) =>
             g.token.address.toLowerCase() ===
                 token.contractAddress.toLowerCase() &&
             g.action === "BUY" &&
             g.timestamp > cutoff
     ).length;
-    const sellCount = goodTraderActions.filter(
+    const smartMoneySells: number = goodTraderActions.filter(
         (g) =>
             g.token.address.toLowerCase() ===
                 token.contractAddress.toLowerCase() &&
             g.action === "SELL" &&
             g.timestamp > cutoff
     ).length;
-    const gDiff = buyCount - sellCount;
-
-    // scale each metric to 0..10
-    const tvlSub = scaleTo0to10(tvl, ranges.tvlMin, ranges.tvlMax, false);
-    const volSub = scaleTo0to10(vol, ranges.volumeMin, ranges.volumeMax, false);
-    const netBuySub = scaleTo0to10(
-        netBuys,
-        ranges.netBuyMin,
-        ranges.netBuyMax,
-        false
+    const smartMoneyScore: number = getSmartMoneyScore(
+        smartMoneyBuys,
+        smartMoneySells
     );
-    const goodTraderSub = scaleTo0to10(
-        gDiff,
-        ranges.goodTraderDiffMin,
-        ranges.goodTraderDiffMax,
-        false
-    );
-    const heatSub = scaleTo0to10(heat, ranges.heatMin, ranges.heatMax, true);
 
-    // Apply weights to each score
-    const weightedScores = {
-        tvl: tvlSub * normalizedWeights.tvl,
-        volume: volSub * normalizedWeights.volume,
-        netBuys: netBuySub * normalizedWeights.netBuys,
-        goodTrader: goodTraderSub * normalizedWeights.goodTrader,
-        heat: heatSub * normalizedWeights.heat,
-    };
+    // Use provided weights or defaults
+    const finalWeights: ScoringWeights = { ...DEFAULT_WEIGHTS, ...weights };
 
-    // Calculate final score (0-100)
-    const finalScore = Math.round(
-        Object.values(weightedScores).reduce((a, b) => a + b, 0) * 10
+    // Calculate final score
+    const finalScore: number = Math.round(
+        tvlScore * finalWeights.tvl +
+            volumeScore * finalWeights.volume +
+            netBuyScore * finalWeights.netBuys +
+            smartMoneyScore * finalWeights.goodTrader +
+            heatScore * finalWeights.heat
     );
 
     return {
         finalScore,
         breakdown: {
-            tvlScore: tvlSub,
-            volumeScore: volSub,
-            netBuyScore: netBuySub,
-            goodTraderScore: goodTraderSub,
-            heatScore: heatSub,
+            tvlScore,
+            volumeScore,
+            netBuyScore,
+            goodTraderScore: smartMoneyScore,
+            heatScore,
         },
         weightedBreakdown: {
-            tvlScore: weightedScores.tvl * 10,
-            volumeScore: weightedScores.volume * 10,
-            netBuyScore: weightedScores.netBuys * 10,
-            goodTraderScore: weightedScores.goodTrader * 10,
-            heatScore: weightedScores.heat * 10,
+            tvlScore: tvlScore * finalWeights.tvl * 10,
+            volumeScore: volumeScore * finalWeights.volume * 10,
+            netBuyScore: netBuyScore * finalWeights.netBuys * 10,
+            goodTraderScore: smartMoneyScore * finalWeights.goodTrader * 10,
+            heatScore: heatScore * finalWeights.heat,
         },
-        weights: normalizedWeights,
+        weights: finalWeights,
         explanation: {
-            tvl: `TVL: $${tvl.toFixed(2)} (Score: ${tvlSub.toFixed(
-                1
-            )}/10, Weight: ${(normalizedWeights.tvl * 100).toFixed(0)}%)`,
-            volume: `24h Volume: $${vol.toFixed(2)} (Score: ${volSub.toFixed(
-                1
-            )}/10, Weight: ${(normalizedWeights.volume * 100).toFixed(0)}%)`,
-            netBuys: `Net Buys: ${netBuys} (Score: ${netBuySub.toFixed(
-                1
-            )}/10, Weight: ${(normalizedWeights.netBuys * 100).toFixed(0)}%)`,
-            goodTrader: `Smart Money: ${buyCount} buys, ${sellCount} sells (Score: ${goodTraderSub.toFixed(
-                1
-            )}/10, Weight: ${(normalizedWeights.goodTrader * 100).toFixed(
+            tvl: `TVL: $${tvl.toFixed(2)} (Score: ${tvlScore.toFixed(1)}/10)`,
+            volume: `24h Volume: $${vol.toFixed(
+                2
+            )} (Score: ${volumeScore.toFixed(1)}/10)`,
+            netBuys: `Net Buys (30m): ${netBuyScore}`,
+            goodTrader: `Smart Money: ${smartMoneyBuys} buys, ${smartMoneySells} sells`,
+            heat: `Heat Ratio: ${heat.toFixed(3)} (Score: ${heatScore.toFixed(
                 0
-            )}%)`,
-            heat: `Heat Ratio: ${heat.toFixed(3)} (Score: ${heatSub.toFixed(
-                1
-            )}/10, Weight: ${(normalizedWeights.heat * 100).toFixed(0)}%)`,
+            )})`,
         },
         metrics: {
             tvl,
             volume: vol,
-            netBuys,
-            goodTraderDiff: gDiff,
+            netBuys: netBuyScore,
+            goodTraderDiff: smartMoneyScore,
             heatRatio: heat,
         },
     };
