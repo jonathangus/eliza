@@ -9,6 +9,7 @@ import {
     ModelClass,
     generateObject,
 } from "@elizaos/core";
+import fs from "fs";
 import { generateText, composeContext } from "@elizaos/core";
 import { z } from "zod";
 import { onChainDataStorer } from "../onchain-data-storer";
@@ -20,12 +21,6 @@ import { createClient, getAddress, http } from "viem";
 
 const redis = Redis.fromEnv();
 
-function getRisk(size: string): "LOW" | "MID" | "HIGH" {
-    if (size === "large") return "LOW";
-    if (size === "small") return "HIGH";
-    return "MID";
-}
-
 const template = `
 You are a **trading assistant**. Given the user's request, you must determine:
 1. **Risk Level** of the requested trade (**LOW**, **MID**, or **HIGH**).
@@ -35,7 +30,15 @@ You are a **trading assistant**. Given the user's request, you must determine:
 Instructions:
 - **If the user does not specify how much they want to spend**, set \amount\ to **null**.
 - **If the user does not specify a risk level**, set \risk\ to **MID**.
-- Extract the message the user sent and return it in the originalQuestion field. It should just be the question without any information about the sender.
+- **If the user does not specify how many tokens they want to buy**, set \tokenCount\ to **2**.
+- **You will get a post message or a message sent from the user. Its from this message you should extract the wanted variables**
+
+
+**Agent name**:
+{{agentName}}
+
+**Current post** 
+{{currentPost}}
 
 **User message**:
 \\\
@@ -76,8 +79,9 @@ Constraints:
 - Answer should be a single sentence that summarizes the user's request and the output from our allocation plan in the  voice and style and perspective of {{agentName}}
 - Keymetrics should be coming from the token data to be extracted
 
+Sender name: {{senderName}}
 User want to buy {{tokenCount}} tokens. Only return this amount of suggested tokens.
-User request: {{currentMessage}}  
+User request: {{currentMessage}}
 Amount: {{amount}}  
 Date: {{date}}
 Wanted risk: {{risk}}
@@ -151,6 +155,25 @@ export const tokenHelperAction: Action = {
             currentState = await runtime.updateRecentMessageState(currentState);
         }
 
+        const isLens = Boolean(state.lensHandle);
+        const isDiscord = Boolean(state.discordClient);
+
+        if (isLens) {
+            state.currentMessage =
+                state.recentMessageInteractions ||
+                state.recentMessagesData?.[1]?.content.text ||
+                state.recentMessagesData?.[0]?.content.text ||
+                state.recentMessagesData;
+        }
+        if (isDiscord) {
+            state.currentMessage =
+                state.recentMessagesData?.[1]?.content.text ||
+                state.recentMessagesData?.[0]?.content.text ||
+                state.recentMessageInteractions ||
+                state.recentMessagesData;
+        }
+
+        state.senderName = currentState.senderName;
         state.currentMessage =
             state.recentMessagesData?.[1]?.content.text ||
             state.recentMessagesData?.[0]?.content.text ||
@@ -165,6 +188,7 @@ export const tokenHelperAction: Action = {
             risk: z.enum(["LOW", "MID", "HIGH"]),
             tokenCount: z.number(),
         });
+
         const { object } = await generateObject({
             runtime,
             context: context1,
@@ -173,12 +197,29 @@ export const tokenHelperAction: Action = {
         });
 
         const { amount, risk, tokenCount } = firstCallSchema.parse(object);
+        console.log("amount, risk, tokenCount", { amount, risk, tokenCount });
 
         onChainDataStorer.updateTopState();
 
         const tokensWithDextools = onChainDataStorer
             .getTokensByRisk(risk)
             .slice(0, 7); // only care about the top 7 tokens for now
+
+        console.log(":::::::tokensWithDextools");
+
+        fs.writeFileSync(
+            "tokensWithDextools.json",
+            JSON.stringify(
+                {
+                    tokensWithDextools,
+                    amount,
+                    risk,
+                    tokenCount,
+                },
+                null,
+                2
+            )
+        );
 
         state.finalTokens = JSON.stringify(tokensWithDextools);
         state.amount = amount;
@@ -188,7 +229,7 @@ export const tokenHelperAction: Action = {
 
         const context2 = composeContext({ state, template: secondTemplate });
 
-        console.log("generating text");
+        console.log("generating token to buy");
         const result = await generateText({
             runtime,
             context: context2,

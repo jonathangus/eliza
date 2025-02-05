@@ -839,15 +839,7 @@ export async function createAgent(
         evaluators: [],
         character,
         // character.plugins are handled when clients are added
-        plugins: [
-            getSecret(character, "CDP_API_KEY_NAME") &&
-            getSecret(character, "CDP_API_KEY_PRIVATE_KEY") &&
-            getSecret(character, "CDP_AGENT_KIT_NETWORK")
-                ? agentKitPlugin
-                : null,
-        ]
-            .flat()
-            .filter(Boolean),
+        plugins: [].flat().filter(Boolean),
         providers: [],
         managers: [],
         cacheManager: cache,
@@ -973,7 +965,7 @@ async function startAgent(
         // report to console
         elizaLogger.debug(`Started ${character.name} as ${runtime.agentId}`);
 
-        initializePlugin(runtime);
+        await initializePlugin(runtime);
         return runtime;
     } catch (error) {
         elizaLogger.error(

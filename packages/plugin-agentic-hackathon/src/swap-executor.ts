@@ -164,41 +164,38 @@ class SwapExecutor {
             blockTag: "latest",
             emitMissed: true,
             onBlock: async (block) => {
-                console.log("block", block.number);
+                if (block) {
+                    const transactions = block.transactions || [];
+                    for (const tx of transactions) {
+                        const aaTransfer = getAATransfer(tx);
 
-                const transactions = block.transactions;
-                for (const tx of transactions) {
-                    const aaTransfer = getAATransfer(tx);
+                        if (aaTransfer.length > 0) {
+                            const acc =
+                                this.accounts[
+                                    aaTransfer[0].target.toLowerCase()
+                                ];
 
-                    if (aaTransfer.length > 0) {
-                        console.log(
-                            "found AA transfers",
-                            aaTransfer.map((t) => t.target.toLowerCase())
-                        );
-
-                        const acc =
-                            this.accounts[aaTransfer[0].target.toLowerCase()];
-
-                        if (acc) {
-                            console.log(
-                                "AA transfers are to one of our vaults. Execute trades"
-                            );
-                            for (const t of aaTransfer) {
-                                this.executeOrder(acc, {
-                                    ...tx,
-                                    to: t.target,
-                                    value: t.value,
-                                });
+                            if (acc) {
+                                console.log(
+                                    "AA transfers are to one of our vaults. Execute trades"
+                                );
+                                for (const t of aaTransfer) {
+                                    this.executeOrder(acc, {
+                                        ...tx,
+                                        to: t.target,
+                                        value: t.value,
+                                    });
+                                }
                             }
-                        }
-                    } else if (
-                        typeof tx.to === "string" &&
-                        typeof tx.from === "string"
-                    ) {
-                        const acc = this.accounts[tx.to.toLowerCase()];
+                        } else if (
+                            typeof tx.to === "string" &&
+                            typeof tx.from === "string"
+                        ) {
+                            const acc = this.accounts[tx.to.toLowerCase()];
 
-                        if (acc) {
-                            this.executeOrder(acc, tx);
+                            if (acc) {
+                                this.executeOrder(acc, tx);
+                            }
                         }
                     }
                 }
@@ -289,7 +286,7 @@ class SwapExecutor {
                 calls,
             });
 
-            console.log(hash);
+            console.log("Tx done: ", hash);
             const receipt = await bundlerClient.waitForUserOperationReceipt({
                 hash,
             });

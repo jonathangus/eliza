@@ -139,7 +139,7 @@ class OnchainDataStorer {
         }
     }
 
-    private async saveCacheToDisk(): Promise<void> {
+    private saveCacheToDisk(): void {
         try {
             // Save DEX cache
             const dexCacheObj = Object.fromEntries(this.dexCache);
@@ -269,6 +269,8 @@ class OnchainDataStorer {
                             address: token.contractAddress,
                             data,
                         });
+
+                        await this.saveCacheToDisk();
                     }
                 } catch (error) {
                     console.error(
@@ -278,7 +280,6 @@ class OnchainDataStorer {
                 }
             }
 
-            await this.saveCacheToDisk();
             console.log("Dex data backfill completed");
         } catch (error) {
             console.error("Error in backfillDexData:", error);
@@ -407,6 +408,9 @@ class OnchainDataStorer {
                 }
             }
 
+            console.log("ALL TOKENS LENGHT:", this.allTokens.length);
+            console.log("ENRICHED LENGTH", this.enrichedTokens.length);
+
             // Sort by final score and take top 30
             this.enrichedTokens = enriched
                 .sort((a, b) => b.finalScoreValue - a.finalScoreValue)
@@ -420,6 +424,8 @@ class OnchainDataStorer {
 
     getTokensByRisk = (risk: Risk): EnrichedTokenData[] => {
         const ignoreTokens = ["USD", "BTC", "ETH", "Stable", "DAI"];
+        console.log("this.enrichedTokens", this.enrichedTokens);
+        console.log("risk", risk);
 
         const tokens = this.enrichedTokens
             .filter((token) => token.risk === risk)

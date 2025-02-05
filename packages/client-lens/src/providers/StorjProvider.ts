@@ -61,8 +61,6 @@ class StorjProvider {
             }
         );
 
-        console.log(`${process.env.PINATA_GATEWAY}/ipfs/${result.IpfsHash}`);
-
         return `${process.env.PINATA_GATEWAY}/ipfs/${result.IpfsHash}`;
     }
 

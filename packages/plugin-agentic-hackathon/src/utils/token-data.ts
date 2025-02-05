@@ -200,8 +200,19 @@ async function fetchTokenDataForTimestamp(
         size: index < third ? "large" : index < twoThirds ? "medium" : "small",
     }));
 
+    // Add risk based on size
+    const dataWithSizesAndRisk = dataWithSizes.map((item) => ({
+        ...item,
+        risk:
+            item.size === "large"
+                ? "LOW"
+                : item.size === "small"
+                ? "HIGH"
+                : "MID",
+    }));
+
     // Sort by heat ratio for final output
-    const finalData = dataWithSizes;
+    const finalData = dataWithSizesAndRisk;
 
     // Write processed data to cache
     if (finalData.length > 0) {
