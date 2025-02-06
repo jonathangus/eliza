@@ -8,6 +8,7 @@ import {
     HandlerCallback,
     ModelClass,
     generateObject,
+    TokenExecutor,
 } from "@elizaos/core";
 import fs from "fs";
 import { generateText, composeContext } from "@elizaos/core";
@@ -18,6 +19,7 @@ import { swapExecutor } from "../swap-executor";
 import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 import { base } from "viem/chains";
 import { createClient, getAddress, http } from "viem";
+import { BuyTokenAction } from "../types";
 
 const redis = Redis.fromEnv();
 
@@ -160,6 +162,8 @@ export const tokenHelperAction: Action = {
         const isLens = Boolean(state.lensHandle);
         const isDiscord = Boolean(state.discordClient);
 
+        const uuid = crypto.randomUUID();
+
         if (isLens) {
             state.currentMessage =
                 state.recentMessageInteractions ||
@@ -176,10 +180,14 @@ export const tokenHelperAction: Action = {
         }
 
         state.senderName = currentState.senderName;
-        state.currentMessage =
-            state.recentMessagesData?.[1]?.content.text ||
-            state.recentMessagesData?.[0]?.content.text ||
-            state.recentMessagesData;
+
+        const predata: BuyTokenAction = {
+            id: uuid,
+            message: state.currentMessage as string,
+            senderName: state.senderName as string,
+        };
+
+        await redis.set(uuid, JSON.stringify(predata));
 
         const context1 = composeContext({
             state,
@@ -205,13 +213,13 @@ export const tokenHelperAction: Action = {
 
         const tokensWithDextools = onChainDataStorer
             .getTokensByRisk(risk)
-            .slice(0, 7); // only care about the top 7 tokens for now
+            .slice(0, tokenCount);
 
         state.finalTokens = JSON.stringify(tokensWithDextools);
         state.amount = amount;
         state.date = new Date().toISOString();
         state.risk = risk;
-        state.tokenCoun = tokenCount;
+        state.tokenCount = tokenCount;
 
         const context2 = composeContext({ state, template: secondTemplate });
 
@@ -237,12 +245,15 @@ export const tokenHelperAction: Action = {
             };
         });
 
-        const uuid = crypto.randomUUID();
-
         console.info("Generated buy token action:", buyTokenAction);
         console.info("Generated UUID for transaction:", uuid);
 
-        await redis.set(uuid, JSON.stringify(buyTokenAction));
+        const data: BuyTokenAction = {
+            ...predata,
+            ...buyTokenAction,
+        };
+
+        await redis.set(uuid, JSON.stringify(data));
 
         const pk = generatePrivateKey();
         const owner = privateKeyToAccount(pk);
@@ -256,6 +267,17 @@ export const tokenHelperAction: Action = {
             client: client,
             owners: [owner],
         });
+
+        const executor: TokenExecutor = {
+            orderId: uuid,
+            address: getAddress(account.address),
+            isDeplyed: false,
+            txs: [],
+        };
+        await redis.set(
+            `${executor.address}-executor`,
+            JSON.stringify(executor)
+        );
 
         console.info("Generated account address for order:", account.address);
 

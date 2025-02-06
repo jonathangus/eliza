@@ -11,9 +11,15 @@ import {
     FormattedTransaction,
     createClient,
     webSocket,
+    getAddress,
 } from "viem";
 import { base } from "viem/chains";
-import { Action, AgentRuntime, State } from "@elizaos/core";
+import {
+    Action,
+    AgentRuntime,
+    ExecutorTransaction,
+    State,
+} from "@elizaos/core";
 import { fetchSwapParams } from "./utils/paraswap";
 import { BuyTokenAction } from "./types";
 import {
@@ -23,6 +29,9 @@ import {
 } from "viem/account-abstraction";
 import { entryPointAbi } from "./abi/entry-point";
 import { coinbaseSmartAccountAbi } from "./abi/coinbase-smart-account";
+import { Redis } from "@upstash/redis";
+
+const redis = Redis.fromEnv();
 
 interface AccountEntry {
     id: string;
@@ -170,18 +179,23 @@ class SwapExecutor {
                         const aaTransfer = getAATransfer(tx);
 
                         if (aaTransfer.length > 0) {
-                            const acc =
-                                this.accounts[
-                                    aaTransfer[0].target.toLowerCase()
-                                ];
+                            for (const t of aaTransfer) {
+                                const acc =
+                                    this.accounts[t.target.toLowerCase()];
+                                if (acc) {
+                                    console.log(
+                                        "AA transfer to vault detected. Executing trade",
+                                        tx
+                                    );
 
-                            if (acc) {
-                                console.log(
-                                    "AA transfers are to one of our vaults. Execute trades"
-                                );
-                                for (const t of aaTransfer) {
+                                    const updatedTx =
+                                        await websocketPublicClient.getTransaction(
+                                            {
+                                                hash: tx.hash,
+                                            }
+                                        );
                                     this.executeOrder(acc, {
-                                        ...tx,
+                                        ...updatedTx,
                                         to: t.target,
                                         value: t.value,
                                     });
@@ -236,6 +250,7 @@ class SwapExecutor {
 
     executeOrder = async (acc: AccountEntry, tx: Transaction) => {
         try {
+            console.log("executeOrder TX:", tx);
             const { bundlerClient, account } =
                 await this.getBundlerClientFromAcc(acc);
             const amount = tx.value;
@@ -243,29 +258,36 @@ class SwapExecutor {
                 `Processing transaction for account: ${acc.address}, Amount: ${amount}`
             );
 
+            const preparedCalls = acc.formatedOrder.map((order) => {
+                const weiValue =
+                    (amount *
+                        BigInt(
+                            Math.floor(parseFloat(order.percentage) * 100)
+                        )) /
+                    BigInt(100);
+                const ethAmount = formatEther(weiValue);
+                const orderAmount = parseUnits(ethAmount, order.decimals);
+
+                console.info(
+                    `Preparing to buy ${order.name} for ${weiValue} wei`
+                );
+
+                return {
+                    srcToken: "ETH",
+                    destToken: order.contractAddress,
+                    destDecimals: order.decimals,
+                    receiver: tx.from as Address,
+                    userAddress: account.address as Address,
+                    amount: String(orderAmount),
+                };
+            });
+
             const calls = await Promise.all(
-                acc.formatedOrder.map(async (order) => {
-                    const weiValue =
-                        (amount *
-                            BigInt(
-                                Math.floor(parseFloat(order.percentage) * 100)
-                            )) /
-                        BigInt(100);
-                    const ethAmount = formatEther(weiValue);
-                    const orderAmount = parseUnits(ethAmount, order.decimals);
-
-                    console.info(
-                        `Preparing to buy ${order.name} for ${weiValue} wei`
-                    );
+                preparedCalls.map(async (preparedCall) => {
                     const swapParams = await fetchSwapParams({
-                        srcToken: "ETH",
-                        destToken: order.contractAddress,
-                        destDecimals: order.decimals,
-                        receiver: acc.address as Address,
-                        userAddress: account.address as Address,
-                        amount: orderAmount,
+                        ...preparedCall,
+                        amount: BigInt(preparedCall.amount),
                     });
-
                     console.debug("Swap parameters obtained:", swapParams);
 
                     return {
@@ -290,6 +312,23 @@ class SwapExecutor {
             const receipt = await bundlerClient.waitForUserOperationReceipt({
                 hash,
             });
+
+            const executor = await redis.get(
+                `${getAddress(acc.address)}-executor`
+            );
+            const executorTx: ExecutorTransaction = {
+                hash,
+                data: preparedCalls,
+                receiver: tx.from,
+                amount: String(tx.value),
+            };
+            executor.txs = [...executor.txs, executorTx];
+            executor.isDeplyed = true;
+
+            await redis.set(
+                `${getAddress(acc.address)}-executor`,
+                JSON.stringify(executor)
+            );
 
             console.log(receipt);
         } catch (error) {
