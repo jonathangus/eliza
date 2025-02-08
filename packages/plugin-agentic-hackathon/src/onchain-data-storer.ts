@@ -440,7 +440,6 @@ class OnchainDataStorer {
         risk: Risk
     ): Array<{ token: EnrichedTokenData; percentage: number }> => {
         const ignoreTokens = ["USD", "BTC", "ETH", "Stable", "DAI"];
-        console.log("this.enrichedTokens", this.enrichedTokens);
         console.log("risk", risk);
 
         const tokens = this.enrichedTokens

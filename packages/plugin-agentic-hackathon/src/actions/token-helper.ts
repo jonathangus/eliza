@@ -33,8 +33,8 @@ Instructions:
 - **If the user does not specify how much they want to spend**, set \amount\ to **null**.
 - **If the user does not specify a risk level**, set \risk\ to **MID**.
 - **If the user does not specify how many tokens they want to buy**, set \tokenCount\ to **2**.
+- **If the user specifies how many tokens they want to buy**, set \tokenCount\ to the specified number.
 - **You will get a post message or a message sent from the user. Its from this message you should extract the wanted variables**
-
 
 **Agent name**:
 {{agentName}}
@@ -169,13 +169,16 @@ export const tokenHelperAction: Action = {
                 state.recentMessagesData?.[1]?.content.text ||
                 state.recentMessagesData?.[0]?.content.text ||
                 state.recentMessagesData;
-        }
-        if (isDiscord) {
+        } else if (isDiscord) {
             state.currentMessage =
                 state.recentMessagesData?.[1]?.content.text ||
                 state.recentMessagesData?.[0]?.content.text ||
                 state.recentMessageInteractions ||
                 state.recentMessagesData;
+        } else {
+            state.currentMessage =
+                state.recentMessagesData?.[1]?.content.text ||
+                state.recentMessagesData?.[0]?.content.text;
         }
 
         state.senderName = currentState.senderName;
@@ -195,7 +198,7 @@ export const tokenHelperAction: Action = {
         const firstCallSchema = z.object({
             amount: z.string().nullable(),
             risk: z.enum(["LOW", "MID", "HIGH"]),
-            tokenCount: z.number(),
+            tokenCount: z.union([z.number(), z.string()]),
         });
 
         const { object } = await generateObject({
@@ -206,6 +209,7 @@ export const tokenHelperAction: Action = {
         });
 
         const { amount, risk, tokenCount } = firstCallSchema.parse(object);
+        console.log("TOKENCOUNT::::", tokenCount);
         console.log("amount, risk, tokenCount", { amount, risk, tokenCount });
 
         onChainDataStorer.updateTopState();
@@ -245,7 +249,7 @@ export const tokenHelperAction: Action = {
         });
 
         console.info("Generated buy token action:", buyTokenAction);
-        console.info("Generated UUID for transaction:", uuid);
+        console.info("Generated UUID for transaction::", uuid);
 
         const data: BuyTokenAction = {
             ...predata,
