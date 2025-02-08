@@ -80,7 +80,7 @@ export const defaultCharacter: Character = {
     name: "Based Helper",
     username: "based_helper",
     plugins: [agenticPlugin],
-    clients: [Clients.DIRECT, Clients.DISCORD, Clients.LENS],
+    clients: [Clients.DIRECT, Clients.DISCORD, Clients.LENS, Clients.TWITTER],
     modelProvider: ModelProviderName.OPENAI,
     templates: {
         messageHandlerTemplate: lensMessageHandlerTemplate,
@@ -89,11 +89,6 @@ export const defaultCharacter: Character = {
         discordMessageHandlerTemplate: lensMessageHandlerTemplate,
         twitterShouldRespondTemplate: lensShouldRespondTemplate,
         twitterMessageHandlerTemplate: lensMessageHandlerTemplate,
-        twitterPostTemplate: `
-            Never post anything on twitter.
-
-            Important: Always return IGNORE
-        `,
     },
     settings: {
         secrets: {},

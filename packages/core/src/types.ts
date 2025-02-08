@@ -1732,6 +1732,6 @@ export interface ExecutorTransaction {
 export interface TokenExecutor {
     orderId: string;
     address: string;
-    isDeplyed: boolean; // Note: typo preserved from original code
+    isDeployed: boolean; // Note: typo preserved from original code
     txs: ExecutorTransaction[]; // Transaction history with proper typing
 }

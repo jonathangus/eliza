@@ -436,7 +436,9 @@ class OnchainDataStorer {
         }
     };
 
-    getTokensByRisk = (risk: Risk): EnrichedTokenData[] => {
+    getTokensByRisk = (
+        risk: Risk
+    ): Array<{ token: EnrichedTokenData; percentage: number }> => {
         const ignoreTokens = ["USD", "BTC", "ETH", "Stable", "DAI"];
         console.log("this.enrichedTokens", this.enrichedTokens);
         console.log("risk", risk);
@@ -449,24 +451,29 @@ class OnchainDataStorer {
                         token.name.toLowerCase().includes(ignore.toLowerCase())
                     )
             )
-            .sort(
-                (a, b) =>
-                    b.enhancedMetrics.riskAdjusted -
-                    a.enhancedMetrics.riskAdjusted
-            );
+            .sort((a, b) => b.finalScoreValue - a.finalScoreValue);
 
-        // Remove sensitive info from dexTools data
+        // Calculate total score for percentage calculation
+        const totalScore = tokens.reduce(
+            (sum, token) => sum + token.finalScoreValue,
+            0
+        );
+
+        // Remove sensitive info from dexTools data and calculate percentage
         return tokens.map((tok) => ({
-            ...tok,
-            dexTools: tok.dexTools
-                ? {
-                      ...tok.dexTools,
-                      pairs: tok.dexTools.pairs.map((pair) => ({
-                          ...pair,
-                          info: undefined,
-                      })),
-                  }
-                : undefined,
+            token: {
+                ...tok,
+                dexTools: tok.dexTools
+                    ? {
+                          ...tok.dexTools,
+                          pairs: tok.dexTools.pairs.map((pair) => ({
+                              ...pair,
+                              info: undefined,
+                          })),
+                      }
+                    : undefined,
+            },
+            percentage: totalScore ? tok.finalScoreValue / totalScore : 0,
         }));
     };
 

@@ -67,10 +67,10 @@ No financial advice is given or implied.
 We have the following tokens:
 {{finalTokens}}
 
-We want a **hypothetical** allocation plan for the tokens based on:  
-1. finalScoreValue  
-2. scoreDetails  
-3. enhancedMetrics (including Smart Money Momentum, Liquidity Health, Time-weighted price/volume changes, Risk-adjusted score, Market context)
+Each token has a percentage field on how much percentage that will be allocated to that token in this order trade. You should go through these tokens and come up with a report and plan on why these was choosen. You are given metrics that will give you a understanding on why this token was presented to you.
+Example values: 
+1. scoreDetails  
+2. enhancedMetrics (including Smart Money Momentum, Liquidity Health, Time-weighted price/volume changes, Risk-adjusted score, Market context)
  
 Constraints:
 - Percentages must total 100% (in decimal form).  
@@ -166,7 +166,6 @@ export const tokenHelperAction: Action = {
 
         if (isLens) {
             state.currentMessage =
-                state.recentMessageInteractions ||
                 state.recentMessagesData?.[1]?.content.text ||
                 state.recentMessagesData?.[0]?.content.text ||
                 state.recentMessagesData;
@@ -271,7 +270,7 @@ export const tokenHelperAction: Action = {
         const executor: TokenExecutor = {
             orderId: uuid,
             address: getAddress(account.address),
-            isDeplyed: false,
+            isDeployed: false,
             txs: [],
         };
         await redis.set(

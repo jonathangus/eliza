@@ -19,6 +19,7 @@ import {
     AgentRuntime,
     ExecutorTransaction,
     State,
+    TokenExecutor,
 } from "@elizaos/core";
 import { fetchSwapParams } from "./utils/paraswap";
 import { BuyTokenAction } from "./types";
@@ -53,7 +54,12 @@ interface AATransfer {
     value: bigint;
     sender: Address;
 }
+const BASE_ENTRY_POINT = "0xbdBeBD58cC8153Ce74530BB342427579315915B2";
 
+const publicClient = createPublicClient({
+    chain: base,
+    transport: http(),
+});
 const getAATransfer = (
     tx: FormattedTransaction<typeof base, any>
 ): AATransfer[] => {
@@ -115,7 +121,7 @@ const getAATransfer = (
                                 transfers.push({
                                     target: (call.target || call.to) as Address,
                                     value: BigInt(call.value || 0),
-                                    sender: userOp.sender as Address,
+                                    sender: call.sender as Address,
                                 });
                             }
                         }
@@ -176,29 +182,41 @@ class SwapExecutor {
                 if (block) {
                     const transactions = block.transactions || [];
                     for (const tx of transactions) {
-                        const aaTransfer = getAATransfer(tx);
+                        if (
+                            tx.to?.toLowerCase() ===
+                            BASE_ENTRY_POINT.toLowerCase()
+                        ) {
+                            const aaTransfer = getAATransfer(tx);
 
-                        if (aaTransfer.length > 0) {
-                            for (const t of aaTransfer) {
-                                const acc =
-                                    this.accounts[t.target.toLowerCase()];
-                                if (acc) {
-                                    console.log(
-                                        "AA transfer to vault detected. Executing trade",
-                                        tx
-                                    );
-
+                            if (aaTransfer.length > 0) {
+                                for (const t of aaTransfer) {
                                     const updatedTx =
-                                        await websocketPublicClient.getTransaction(
-                                            {
-                                                hash: tx.hash,
+                                        await publicClient.getTransaction({
+                                            hash: tx.hash,
+                                        });
+
+                                    const wantedTx = getAATransfer(updatedTx);
+                                    if (wantedTx.length > 0) {
+                                        for (const tt of aaTransfer) {
+                                            const acc =
+                                                this.accounts[
+                                                    t.target.toLowerCase()
+                                                ];
+                                            if (acc) {
+                                                console.log(
+                                                    "AA transfer to vault detected. Executing trade",
+                                                    tx
+                                                );
+
+                                                this.executeOrder(acc, {
+                                                    ...updatedTx,
+                                                    to: tt.target,
+                                                    from: tt.sender,
+                                                    value: tt.value,
+                                                });
                                             }
-                                        );
-                                    this.executeOrder(acc, {
-                                        ...updatedTx,
-                                        to: t.target,
-                                        value: t.value,
-                                    });
+                                        }
+                                    }
                                 }
                             }
                         } else if (
@@ -313,9 +331,9 @@ class SwapExecutor {
                 hash,
             });
 
-            const executor = await redis.get(
+            const executor = (await redis.get(
                 `${getAddress(acc.address)}-executor`
-            );
+            )) as TokenExecutor;
             const executorTx: ExecutorTransaction = {
                 hash,
                 data: preparedCalls,
@@ -323,7 +341,7 @@ class SwapExecutor {
                 amount: String(tx.value),
             };
             executor.txs = [...executor.txs, executorTx];
-            executor.isDeplyed = true;
+            executor.isDeployed = true;
 
             await redis.set(
                 `${getAddress(acc.address)}-executor`,
