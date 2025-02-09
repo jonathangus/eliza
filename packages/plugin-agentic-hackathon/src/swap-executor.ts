@@ -179,57 +179,62 @@ class SwapExecutor {
             blockTag: "latest",
             emitMissed: true,
             onBlock: async (block) => {
-                if (block) {
-                    const transactions = block.transactions || [];
-                    for (const tx of transactions) {
-                        if (
-                            tx.to?.toLowerCase() ===
-                            BASE_ENTRY_POINT.toLowerCase()
-                        ) {
-                            const aaTransfer = getAATransfer(tx);
+                try {
+                    if (block) {
+                        const transactions = block.transactions || [];
+                        for (const tx of transactions) {
+                            if (
+                                tx.to?.toLowerCase() ===
+                                BASE_ENTRY_POINT.toLowerCase()
+                            ) {
+                                const aaTransfer = getAATransfer(tx);
 
-                            if (aaTransfer.length > 0) {
-                                for (const t of aaTransfer) {
-                                    const updatedTx =
-                                        await publicClient.getTransaction({
-                                            hash: tx.hash,
-                                        });
+                                if (aaTransfer.length > 0) {
+                                    for (const t of aaTransfer) {
+                                        const updatedTx =
+                                            await publicClient.getTransaction({
+                                                hash: tx.hash,
+                                            });
 
-                                    const wantedTx = getAATransfer(updatedTx);
-                                    if (wantedTx.length > 0) {
-                                        for (const tt of aaTransfer) {
-                                            const acc =
-                                                this.accounts[
-                                                    t.target.toLowerCase()
-                                                ];
-                                            if (acc) {
-                                                console.log(
-                                                    "AA transfer to vault detected. Executing trade",
-                                                    tx
-                                                );
+                                        const wantedTx =
+                                            getAATransfer(updatedTx);
+                                        if (wantedTx.length > 0) {
+                                            for (const tt of aaTransfer) {
+                                                const acc =
+                                                    this.accounts[
+                                                        t.target.toLowerCase()
+                                                    ];
+                                                if (acc) {
+                                                    console.log(
+                                                        "AA transfer to vault detected. Executing trade",
+                                                        tx
+                                                    );
 
-                                                this.executeOrder(acc, {
-                                                    ...updatedTx,
-                                                    to: tt.target,
-                                                    from: tt.sender,
-                                                    value: tt.value,
-                                                });
+                                                    this.executeOrder(acc, {
+                                                        ...updatedTx,
+                                                        to: tt.target,
+                                                        from: tt.sender,
+                                                        value: tt.value,
+                                                    });
+                                                }
                                             }
                                         }
                                     }
                                 }
-                            }
-                        } else if (
-                            typeof tx.to === "string" &&
-                            typeof tx.from === "string"
-                        ) {
-                            const acc = this.accounts[tx.to.toLowerCase()];
+                            } else if (
+                                typeof tx.to === "string" &&
+                                typeof tx.from === "string"
+                            ) {
+                                const acc = this.accounts[tx.to.toLowerCase()];
 
-                            if (acc) {
-                                this.executeOrder(acc, tx);
+                                if (acc) {
+                                    this.executeOrder(acc, tx);
+                                }
                             }
                         }
                     }
+                } catch (e) {
+                    console.error("watchBlocks error", e);
                 }
             },
             onError: (error) => {
